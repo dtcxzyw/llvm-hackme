@@ -2,6 +2,12 @@
 
 ## Project Overview
 
+`llvm-hackme` is an automated LLVM correctness checking service.  See
+`README.md` for the user-facing overview and `INTERNALS.md` for the
+architecture, state machine, and internal design.
+Agents must read and maintain `INTERNALS.md` when making structural
+changes.
+
 ## Repository Language Rules
 
 - Write all repository content in English and reply to the user in the user's language.

@@ -23,8 +23,6 @@ LOGGER = logging.getLogger(__name__)
 
 FUNC_RE = re.compile(r"define [^@]+@([-\w]+)\(")
 
-FUZZ_RECIPE = "correctness"
-
 
 def _is_safe_subpath(path: str) -> bool:
     if not path or path.startswith("/") or path.startswith(".."):
@@ -253,7 +251,7 @@ class FuzzRunner:
 
         try:
             await run_command(
-                [toolchain.mutate, seeds_file, src_file, FUZZ_RECIPE],
+                [toolchain.mutate, seeds_file, src_file],
                 timeout=30,
             )
         except CommandError:

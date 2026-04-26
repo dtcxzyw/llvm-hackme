@@ -60,8 +60,6 @@ static cl::opt<std::string> SeedFile(cl::Positional, cl::desc("<seed>"),
 static cl::opt<std::string> OutputFile(cl::Positional, cl::desc("<output>"),
                                        cl::Required,
                                        cl::value_desc("output file"));
-static cl::opt<std::string> Recipe(cl::Positional, cl::desc("<recipe>"),
-                                   cl::Required, cl::value_desc("recipe"));
 
 std::mt19937_64 Gen(std::random_device{}());
 bool randomBool() { return std::uniform_int_distribution<>{0, 1}(Gen); }
@@ -678,156 +676,6 @@ bool commuteOperands(Instruction &I) {
   I.getOperandUse(0).swap(I.getOperandUse(1));
   return true;
 }
-bool commuteOperandsOfCommutativeInst(Instruction &I) {
-  if (I.getNumOperands() < 2)
-    return false;
-  if (auto *SI = dyn_cast<SelectInst>(&I)) {
-    if (match(SI, m_LogicalOp(m_Value(), m_Value())))
-      return false;
-    Value *X;
-    if (match(SI->getCondition(), m_Not(m_Value(X))))
-      SI->setCondition(X);
-    else if (auto *Cmp = dyn_cast<CmpInst>(SI->getCondition())) {
-      if (Cmp->hasOneUse())
-        Cmp->setPredicate(Cmp->getInversePredicate());
-      else
-        return false;
-    } else
-      return false;
-    SI->swapValues();
-    return true;
-  }
-  if (isa<Constant>(I.getOperand(1)))
-    return false;
-  if (auto *Cmp = dyn_cast<CmpInst>(&I)) {
-    Cmp->swapOperands();
-    return true;
-  }
-  if (!I.isCommutative())
-    return false;
-  I.getOperandUse(0).swap(I.getOperandUse(1));
-  return true;
-}
-std::string getTypeName(Type *Ty) {
-  if (Ty->isIntegerTy())
-    return "i" + std::to_string(Ty->getScalarSizeInBits());
-  if (Ty->isFloatTy())
-    return "f32";
-  if (Ty->isDoubleTy())
-    return "f64";
-  if (Ty->isHalfTy())
-    return "f16";
-  if (Ty->isBFloatTy())
-    return "bf16";
-  if (Ty->isPointerTy())
-    return "ptr";
-  if (auto *Vec = dyn_cast<FixedVectorType>(Ty)) {
-    auto Sub = getTypeName(Vec->getElementType());
-    if (Sub.empty())
-      return "";
-    return std::to_string(Vec->getNumElements()) + "x" + Sub;
-  }
-  return "";
-}
-bool breakOneUse(Instruction &I) {
-  if (!I.hasOneUse())
-    return false;
-  if (!I.getType()->isSingleValueType())
-    return false;
-  if (I.isTerminator())
-    return false;
-  if (isa<PHINode>(&I))
-    return false;
-
-  auto *Ty = I.getType();
-  auto TyName = getTypeName(Ty);
-  auto *M = I.getModule();
-  auto Callee = M->getOrInsertFunction(
-      "fuzz_use_" + TyName,
-      FunctionType::get(Type::getVoidTy(M->getContext()), {Ty}, false));
-  IRBuilder<> Builder(I.getNextNode());
-  Builder.CreateCall(Callee, &I);
-  return true;
-}
-bool mutateArgAttr(Argument &Arg) {
-  switch (randomUInt(1)) {
-  case 0:
-    if (Arg.getType()->isPointerTy()) {
-      if (Arg.hasNonNullAttr())
-        Arg.removeAttr(Attribute::NonNull);
-      else
-        Arg.addAttr(Attribute::NonNull);
-      return true;
-    }
-    break;
-  case 1:
-    if (Arg.hasAttribute(Attribute::NoUndef))
-      Arg.removeAttr(Attribute::NoUndef);
-    else
-      Arg.addAttr(Attribute::NoUndef);
-    return true;
-  }
-  return false;
-}
-bool replaceArgUse(Instruction &I) {
-  SmallVector<Use *> Uses;
-  for (auto &Op : I.operands())
-    if (isa<Argument>(Op) && !Op->hasOneUse())
-      Uses.push_back(&Op);
-  if (Uses.empty())
-    return false;
-  auto &Op = *Uses[randomUInt(Uses.size() - 1)];
-  SmallVector<Argument *> Replacements;
-  for (auto &Arg : I.getFunction()->args())
-    if (Arg.getType() == Op->getType() && &Arg != Op.get())
-      Replacements.push_back(&Arg);
-  if (Replacements.empty())
-    return false;
-  Op->replaceAllUsesWith(Replacements[randomUInt(Replacements.size() - 1)]);
-  return true;
-}
-bool insertNodes(Instruction &I) {
-  if (I.use_empty() || I.isTerminator())
-    return false;
-  Type *Ty = I.getType();
-  if (randomBool() && (Ty->isIntOrIntVectorTy() || Ty->isPtrOrPtrVectorTy() ||
-                       Ty->isFPOrFPVectorTy())) {
-    for (auto &U : I.uses()) {
-      if (isa<PHINode>(U.getUser()) || isa<FreezeInst>(U.getUser()))
-        continue;
-      if (randomBool()) {
-        IRBuilder<> Builder(cast<Instruction>(U.getUser()));
-        U.set(Builder.CreateFreeze(&I));
-        return true;
-      }
-    }
-  }
-
-  if (Ty->isFPOrFPVectorTy()) {
-    for (auto &U : I.uses()) {
-      if (isa<PHINode>(U.getUser()))
-        continue;
-      if (randomBool()) {
-        IRBuilder<> Builder(cast<Instruction>(U.getUser()));
-        Value *V;
-        switch (randomUInt(1)) {
-        case 0:
-          V = Builder.CreateFNeg(&I);
-        case 1:
-          if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
-            auto IID = II->getIntrinsicID();
-            if (IID == Intrinsic::fabs)
-              return false;
-          }
-          V = Builder.CreateUnaryIntrinsic(Intrinsic::fabs, &I);
-        }
-        U.set(V);
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 // Recipes
 bool mutateInst(Instruction &I) {
@@ -880,34 +728,6 @@ bool correctnessCheck(Function &F) {
   return MutationIter != 0;
 }
 
-bool mutateOnce(Function &F, bool (*Mutator)(Instruction &)) {
-  for (uint32_t I = 0; I < MaxIterFactor; ++I) {
-    uint32_t Size = F.arg_size();
-    for (auto &BB : F)
-      Size += BB.size();
-    uint32_t Pos = randomUInt(Size - 1);
-    uint32_t Idx = 0;
-
-    for (auto &BB : F) {
-      for (auto &I : BB) {
-        if ((Idx++ == Pos) && Mutator(I)) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-bool commutativeCheck(Function &F) {
-  return mutateOnce(F, commuteOperandsOfCommutativeInst);
-}
-bool multiUseCheck(Function &F) { return mutateOnce(F, breakOneUse); }
-bool flagPreservingCheck(Function &F) { return mutateOnce(F, addFlags); }
-// TODO: remove noundef/nonnull on args
-bool flagDroppingCheck(Function &F) { return mutateOnce(F, dropFlags); }
-bool canonicalFormCheck(Function &F) { return mutateOnce(F, canonicalizeOp); }
-
 int main(int argc, char **argv) {
   InitLLVM Init{argc, argv};
   cl::ParseCommandLineOptions(argc, argv, "mutate\n");
@@ -931,27 +751,9 @@ int main(int argc, char **argv) {
   if (Funcs.empty())
     return EXIT_FAILURE;
 
-  bool (*mutateFunc)(Function &F) = nullptr;
-  if (Recipe == "correctness")
-    mutateFunc = correctnessCheck;
-  else if (Recipe == "commutative")
-    mutateFunc = commutativeCheck;
-  else if (Recipe == "multi-use")
-    mutateFunc = multiUseCheck;
-  else if (Recipe == "flag-preserving")
-    mutateFunc = flagPreservingCheck;
-  else if (Recipe == "flag-dropping")
-    mutateFunc = flagDroppingCheck;
-  else if (Recipe == "canonical-form")
-    mutateFunc = canonicalFormCheck;
-  else {
-    errs() << "Unknown recipe " << Recipe << "\n";
-    return EXIT_FAILURE;
-  }
-
   SmallVector<Function *> ErasedFuncs;
   for (auto &Func : Funcs) {
-    if (!mutateFunc(*Func)) {
+    if (!correctnessCheck(*Func)) {
       ErasedFuncs.push_back(Func);
     }
   }
