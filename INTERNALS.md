@@ -99,10 +99,11 @@ This means after a crash, any PR whose `processed_at` is still null will be re-p
 
 ## Pass Guessing
 
-`passes.py` maps file paths (from `diff --git a/...` lines in the patch) to opt pass name pipelines. The logic has two layers:
+`passes.py` maps file paths (from `diff --git a/...` lines in the patch) to opt pass name pipelines.  The logic has three layers in strict priority order:
 
-1. **Test paths** (`llvm/test/Transforms/<pass>/...`) — checked first; if the patch modifies a test file under a recognized transform directory, the corresponding pass is used.
-2. **Source paths** (`llvm/lib/...`, `llvm/include/...`) — checked second as a fallback; analysis files (KnownBits, ValueTracking, ConstantFolding, etc.) always map to `instcombine<no-verify-fixpoint>`.
+1. **Test paths** (`llvm/test/Transforms/<pass>/...`, excluding PhaseOrdering) -- checked first; highest priority.
+2. **Source paths** (`llvm/lib/...`, `llvm/include/...`) -- medium priority; analysis files (KnownBits, ValueTracking, ConstantFolding, etc.) always map to `instcombine<no-verify-fixpoint>`.
+3. **PhaseOrdering test paths** (`llvm/test/Transforms/PhaseOrdering/...`) -- lowest priority; only used when no other test or source path matches.
 
 The same keyword list drives `is_relevant_pr_file()`, which determines whether a PR is interesting enough to process at all.
 
