@@ -273,6 +273,8 @@ class HackmeService:
             "run",
             "--agent",
             "hack",
+            "--model",
+            config.hack_model,
             "--format",
             "json",
             "--thinking",

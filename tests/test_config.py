@@ -26,6 +26,7 @@ class TestConfigFromEnv:
                 "OPENAI_ENDPOINT": "https://api.example.com",
                 "OPENAI_AUTH_KEY": "sk-key",
                 "OPENAI_MODEL": "test-model",
+                "LLVM_HACKME_HACK_MODEL": "hack/model",
             },
             clear=True,
         ):
@@ -43,6 +44,7 @@ class TestConfigFromEnv:
                 "OPENAI_ENDPOINT": "https://api.example.com",
                 "OPENAI_AUTH_KEY": "sk-key",
                 "OPENAI_MODEL": "test-model",
+                "LLVM_HACKME_HACK_MODEL": "hack/model",
             },
             clear=True,
         ):
@@ -75,6 +77,7 @@ class TestConfigFromEnv:
                 "LLVM_HACKME_FUZZ_BUDGET_SECONDS": "300",
                 "LLVM_HACKME_MAX_PATCH_CHARS": "10000",
                 "LLVM_HACKME_WORK_DIR": "/tmp/test-work",
+                "LLVM_HACKME_HACK_MODEL": "custom/hack-model",
             },
             clear=True,
         ):
@@ -95,6 +98,7 @@ class TestConfigFromEnv:
                 "OPENAI_ENDPOINT": "https://api.example.com",
                 "OPENAI_AUTH_KEY": "sk-key",
                 "OPENAI_MODEL": "test-model",
+                "LLVM_HACKME_HACK_MODEL": "hack/model",
                 "LLVM_HACKME_WORK_DIR": "/tmp/test-work",
             },
             clear=True,

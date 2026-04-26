@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import subprocess
 import sys
+from pathlib import Path
 
 from llvm_hackme.config import Config
 from llvm_hackme.github import GitHubClient
@@ -12,8 +15,45 @@ from llvm_hackme.state import StateStore
 from llvm_hackme.tui import HackmeTUI
 
 
+def _find_opencode() -> str | None:
+    which = shutil.which("opencode")
+    if which:
+        return which
+    candidates = [Path.home() / ".opencode" / "bin" / "opencode"]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def _validate_environment(config: Config) -> None:
+    if not shutil.which("z3"):
+        raise RuntimeError("z3 is not installed.  Install z3 and ensure it is on PATH.")
+
+    opencode_bin = _find_opencode()
+    if opencode_bin is None:
+        raise RuntimeError(
+            "opencode binary not found.  Install opencode or set it on PATH."
+        )
+
+    result = subprocess.run(
+        [opencode_bin, "models"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    available = result.stdout.splitlines()
+    model = config.hack_model
+    if model not in available:
+        raise RuntimeError(
+            f"opencode hack model {model!r} is not available.  "
+            f"Available models:\n" + "\n".join(f"  {m}" for m in available)
+        )
+
+
 def _create_objects() -> tuple[Config, StateStore, GitHubClient, OpenAIPatchReviewer]:
     config = Config.from_env()
+    _validate_environment(config)
     state = StateStore(config.state_db)
     github = GitHubClient(config.github_token, config.github_repository)
     reviewer = OpenAIPatchReviewer(config)

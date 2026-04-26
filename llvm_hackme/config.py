@@ -40,6 +40,7 @@ class Config:
     baseline_update_interval_seconds: int
     fuzz_budget_seconds: int
     hack_budget_seconds: int
+    hack_model: str
     max_patch_chars: int
     patch_chunk_chars: int
     max_patch_chunks: int
@@ -112,6 +113,7 @@ class Config:
             ),
             fuzz_budget_seconds=_int_env("LLVM_HACKME_FUZZ_BUDGET_SECONDS", 600),
             hack_budget_seconds=_int_env("LLVM_HACKME_HACK_BUDGET_SECONDS", 1200),
+            hack_model=_required_env("LLVM_HACKME_HACK_MODEL"),
             max_patch_chars=_int_env("LLVM_HACKME_MAX_PATCH_CHARS", 200_000),
             patch_chunk_chars=_int_env("LLVM_HACKME_PATCH_CHUNK_CHARS", 50_000),
             max_patch_chunks=_int_env("LLVM_HACKME_MAX_PATCH_CHUNKS", 8),

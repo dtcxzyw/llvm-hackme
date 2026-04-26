@@ -35,7 +35,8 @@ The following environment variables are **required**:
 | `GITHUB_TOKEN`    | GitHub API token (with repo read and PR write scopes) |
 | `OPENAI_ENDPOINT` | OpenAI-compatible API base URL    |
 | `OPENAI_AUTH_KEY` | API authentication key           |
-| `OPENAI_MODEL`    | Model name (e.g. `gpt-4o-mini`)  |
+| `OPENAI_MODEL`    | Model name for LLM patch review (e.g. `gpt-4o-mini`) |
+| `LLVM_HACKME_HACK_MODEL` | opencode model for the hack agent in `provider/model` format (e.g. `deepseek/deepseek-v4-pro`) |
 
 Optional variables (with defaults):
 
