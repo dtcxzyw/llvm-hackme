@@ -97,7 +97,7 @@ async def check_miscompilation(
             alive_result = await run_command(
                 [
                     str(alive_tv),
-                    "--smt-to=200",
+                    "--smt-to=10000",
                     "--disable-undef-input",
                     str(ir_source),
                     str(tgt),

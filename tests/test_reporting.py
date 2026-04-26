@@ -370,5 +370,4 @@ class TestReportResult:
 
         await report_result(github, state, update, None, "rev123", "service-login")
 
-        github.update_issue_comment.assert_called_once()
-        state.clear_reproducer.assert_called_once()
+        github.update_issue_comment.assert_not_called()

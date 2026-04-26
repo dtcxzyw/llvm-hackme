@@ -180,26 +180,6 @@ async def report_result(
                 LOGGER.info("Requested changes for PR #%s", pr_update.pr.number)
             return
 
-        if old_reproducer is None:
-            body = make_comment_body(
-                CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH, None
-            )
-            await github.update_issue_comment(existing.id, body)
-            state.clear_reproducer(pr_update.pr.number)
-            LOGGER.info(
-                "Updated existing comment for PR #%s (no_issue_found)",
-                pr_update.pr.number,
-            )
-            return
-
-        body = make_comment_body(CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH, None)
-        await github.update_issue_comment(existing.id, body)
-        state.clear_reproducer(pr_update.pr.number)
-        LOGGER.info(
-            "Updated existing comment for PR #%s"
-            " (no_issue_found - old reproducer gone)",
-            pr_update.pr.number,
-        )
         return
 
     if reproducer is None:
