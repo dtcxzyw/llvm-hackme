@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import logging
+import os
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
-from llvm_hackme.builds import BuildManager
+from llvm_hackme.builds import BuildManager, ToolchainPaths
 from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
-from llvm_hackme.models import PullRequest, PullRequestUpdate
+from llvm_hackme.models import BugKind, PullRequest, PullRequestUpdate, Reproducer
 from llvm_hackme.passes import guess_pass_name
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
@@ -169,6 +173,19 @@ class HackmeService:
                     verified = None
             else:
                 verified = None
+                hack_reproducer = await self._run_hack_agent(
+                    update, toolchain, pass_name
+                )
+                if hack_reproducer is not None:
+                    try:
+                        verified = await verify_reproducer(
+                            hack_reproducer, toolchain, pass_name
+                        )
+                    except Exception:
+                        LOGGER.exception(
+                            "Hack verification failed for PR #%s", pr_number
+                        )
+                        verified = None
 
             baseline_revision = toolchain.baseline_revision
 
@@ -189,6 +206,146 @@ class HackmeService:
         LOGGER.info("PR #%s processing complete", pr_number)
         self._state.mark_processed(pr_number)
 
+    async def _run_hack_agent(
+        self,
+        update: PullRequestUpdate,
+        toolchain: ToolchainPaths,
+        pass_name: str,
+    ) -> Reproducer | None:
+        config = self._config
+        hack_dir = config.hack_work_dir
+        hack_dir.mkdir(parents=True, exist_ok=True)
+        for child in hack_dir.iterdir():
+            if child.is_file():
+                child.unlink()
+
+        patch_file = hack_dir / "patch.diff"
+        patch_file.write_text(update.patch)
+
+        context = {
+            "patch_file": str(patch_file),
+            "pass_name": pass_name,
+            "work_dir": str(hack_dir),
+            "baseline_opt": str(toolchain.baseline_opt),
+            "pr_opt": str(toolchain.pr_opt),
+            "alive_tv": str(toolchain.alive_tv),
+            "baseline_src_dir": str(config.llvm_project_dir),
+            "pr_src_dir": str(config.llvm_project_pr_dir),
+        }
+        config.hack_context_file.write_text(json.dumps(context))
+
+        submit_pipe = hack_dir / "submit.pipe"
+        response_pipe = hack_dir / "response.pipe"
+
+        if submit_pipe.exists():
+            submit_pipe.unlink()
+        if response_pipe.exists():
+            response_pipe.unlink()
+        os.mkfifo(str(submit_pipe))
+        os.mkfifo(str(response_pipe))
+
+        opencode_bin = _find_opencode()
+        if opencode_bin is None:
+            LOGGER.warning("opencode binary not found, skipping hack agent")
+            self._cleanup_pipes(submit_pipe, response_pipe)
+            return None
+
+        hack_prompt = (
+            "You are the hack agent.  Use the `hack_context` tool first to get "
+            "all paths and configuration, then analyze the patch diff file to find "
+            "a crash or miscompilation regression.  When you find one, call "
+            "`hack_submit` with the IR, pass_name, kind, and description.  "
+            "Work quickly and submit as soon as you have a credible candidate."
+        )
+
+        LOGGER.info("Launching hack agent for PR #%s", update.pr.number)
+        proc = await asyncio.create_subprocess_exec(
+            str(opencode_bin),
+            "run",
+            "--agent",
+            "hack",
+            "--format",
+            "json",
+            "--thinking",
+            hack_prompt,
+            env={
+                **os.environ,
+                "HACK_CONTEXT_FILE": str(config.hack_context_file),
+                "HACK_SUBMIT_PIPE": str(submit_pipe),
+                "HACK_RESPONSE_PIPE": str(response_pipe),
+            },
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+        result_holder: dict[str, dict] = {}
+        pipe_done = asyncio.Event()
+
+        async def pipe_listener() -> None:
+            try:
+                reader = await asyncio.to_thread(
+                    open, str(submit_pipe), "r", encoding="utf-8"
+                )
+                raw = reader.readline().strip()
+                with contextlib.suppress(OSError):
+                    reader.close()
+                if not raw:
+                    pipe_done.set()
+                    return
+                payload = json.loads(raw)
+                hack_reproducer = await _hack_verify(
+                    payload, hack_dir, toolchain, update
+                )
+
+                response = {"success": False, "reason": "unknown"}
+                if hack_reproducer is not None:
+                    response = {"success": True}
+                    result_holder["reproducer"] = hack_reproducer
+
+                with contextlib.suppress(OSError):
+
+                    def _write_response() -> None:
+                        with open(str(response_pipe), "w", encoding="utf-8") as wf:
+                            wf.write(json.dumps(response) + "\n")
+
+                    await asyncio.to_thread(_write_response)
+
+                if response.get("success"):
+                    with contextlib.suppress(ProcessLookupError):
+                        proc.kill()
+                pipe_done.set()
+            except Exception:
+                LOGGER.exception("Hack pipe listener failed")
+                pipe_done.set()
+
+        pipe_task = asyncio.create_task(pipe_listener())
+
+        try:
+            await asyncio.wait_for(
+                proc.wait(),
+                timeout=config.hack_budget_seconds,
+            )
+        except asyncio.TimeoutError:
+            LOGGER.info("Hack agent timed out for PR #%s", update.pr.number)
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+        finally:
+            await pipe_done.wait()
+            if not pipe_task.done():
+                pipe_task.cancel()
+            self._cleanup_pipes(submit_pipe, response_pipe)
+
+        result = result_holder.get("reproducer")
+        if result is not None:
+            LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
+        return result
+
+    def _cleanup_pipes(self, *pipes: Path) -> None:
+        for p in pipes:
+            with contextlib.suppress(OSError):
+                p.unlink(missing_ok=True)
+
     async def _emit_status(self, pr: PullRequest, status: str) -> None:
         if self._status_callback is None:
             return
@@ -208,3 +365,101 @@ class HackmeService:
             except Exception:
                 LOGGER.exception("Baseline update failed")
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
+
+
+def _find_opencode() -> str | None:
+    import shutil
+
+    which = shutil.which("opencode")
+    if which:
+        return which
+    candidates = [
+        Path.home() / ".opencode" / "bin" / "opencode",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
+
+
+async def _hack_verify(
+    payload: dict,
+    hack_dir: Path,
+    toolchain: ToolchainPaths,
+    update: PullRequestUpdate,
+) -> Reproducer | None:
+    from llvm_hackme.verification import check_crash, check_miscompilation
+
+    ir_text = payload.get("ir", "")
+    pass_name = payload.get("pass_name", "")
+    kind_str = payload.get("kind", "crash")
+
+    if not ir_text or not pass_name:
+        return None
+
+    src_file = hack_dir / "hack-reproducer.ll"
+    src_file.write_text(ir_text)
+
+    try:
+        kind = BugKind(kind_str)
+    except ValueError:
+        kind = BugKind.CRASH
+
+    if kind == BugKind.CRASH:
+        baseline_result = await check_crash(toolchain.baseline_opt, src_file, pass_name)
+        if baseline_result is not None:
+            return None
+        pr_result = await check_crash(toolchain.pr_opt, src_file, pass_name)
+        if pr_result is None:
+            return None
+        return Reproducer(
+            kind=BugKind.CRASH,
+            source_path=src_file,
+            command=[
+                str(toolchain.pr_opt),
+                "-S",
+                "-o",
+                "/dev/null",
+                str(src_file),
+                f"-passes={pass_name}",
+            ],
+            baseline_revision=toolchain.baseline_revision,
+            pr_head_sha=update.pr.head_sha,
+            patch_sha256=update.patch_sha256,
+            stacktrace=pr_result.stacktrace,
+            source_content=ir_text,
+        )
+    else:
+        baseline_result = await check_miscompilation(
+            toolchain.baseline_opt,
+            toolchain.alive_tv,
+            src_file,
+            pass_name,
+        )
+        if baseline_result is not None:
+            return None
+        pr_result = await check_miscompilation(
+            toolchain.pr_opt,
+            toolchain.alive_tv,
+            src_file,
+            pass_name,
+        )
+        if pr_result is None:
+            return None
+        return Reproducer(
+            kind=BugKind.MISCOMPILATION,
+            source_path=src_file,
+            command=[
+                str(toolchain.pr_opt),
+                "-S",
+                "-o",
+                "/dev/null",
+                str(src_file),
+                f"-passes={pass_name}",
+            ],
+            baseline_revision=toolchain.baseline_revision,
+            pr_head_sha=update.pr.head_sha,
+            patch_sha256=update.patch_sha256,
+            alive2_counterexample=pr_result.alive2_output,
+            source_content=ir_text,
+        )

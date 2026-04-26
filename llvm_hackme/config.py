@@ -39,6 +39,7 @@ class Config:
     debounce_seconds: int
     baseline_update_interval_seconds: int
     fuzz_budget_seconds: int
+    hack_budget_seconds: int
     max_patch_chars: int
     patch_chunk_chars: int
     max_patch_chunks: int
@@ -74,6 +75,14 @@ class Config:
         return self.work_dir / "fuzz"
 
     @property
+    def hack_work_dir(self) -> Path:
+        return self.work_dir / "hack"
+
+    @property
+    def hack_context_file(self) -> Path:
+        return self.hack_work_dir / "context.json"
+
+    @property
     def fuzz_tools_build_dir(self) -> Path:
         return self.work_dir / "fuzz-tools-build"
 
@@ -102,6 +111,7 @@ class Config:
                 "LLVM_HACKME_BASELINE_UPDATE_INTERVAL_SECONDS", 3600
             ),
             fuzz_budget_seconds=_int_env("LLVM_HACKME_FUZZ_BUDGET_SECONDS", 600),
+            hack_budget_seconds=_int_env("LLVM_HACKME_HACK_BUDGET_SECONDS", 1200),
             max_patch_chars=_int_env("LLVM_HACKME_MAX_PATCH_CHARS", 200_000),
             patch_chunk_chars=_int_env("LLVM_HACKME_PATCH_CHUNK_CHARS", 50_000),
             max_patch_chunks=_int_env("LLVM_HACKME_MAX_PATCH_CHUNKS", 8),

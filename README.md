@@ -23,6 +23,9 @@ CorrelatedValuePropagation, and PhaseOrdering, as well as shared
 analysis infrastructure: KnownBits, KnownFPClass, ValueTracking,
 ConstantFolding, and InstructionSimplify.
 
+For deeper review of individual PRs, see
+[Archer](https://github.com/cuhk-s3/Archer).
+
 ## Configuration
 
 The following environment variables are **required**:
@@ -45,6 +48,7 @@ Optional variables (with defaults):
 | `LLVM_HACKME_SCAN_INTERVAL_SECONDS`     | `60`                       |
 | `LLVM_HACKME_DEBOUNCE_SECONDS`          | `300`                      |
 | `LLVM_HACKME_FUZZ_BUDGET_SECONDS`       | `600`                      |
+| `LLVM_HACKME_HACK_BUDGET_SECONDS`      | `1200`                     |
 | `LLVM_HACKME_MAX_FUZZ_PARALLELISM`      | `1`                        |
 | `LLVM_HACKME_BASELINE_UPDATE_INTERVAL_SECONDS` | `3600`               |
 
@@ -82,13 +86,18 @@ Subsequent runs only rebuild when the baseline moves forward.
    `opt`, and assembles the full toolchain (baseline + PR opt,
    alive-tv, mutation tools).
 4. **Fuzz** -- extracts seed functions from `.ll` test files changed
-   in the patch, mutates them, and runs the PR `opt` with the guessed
-   opt pipeline.  Alive2 checks correctness.
-5. **Verify** -- each suspected bug is regression-tested against the
-   baseline `opt` to confirm it is a new issue.
-6. **Report** -- posts a GitHub issue comment with the IR reproducer
-   (crash stacktrace or Alive2 counterexample) and requests changes on
-   the PR.
+    in the patch, mutates them, and runs the PR `opt` with the guessed
+    opt pipeline.  Alive2 checks correctness.
+ 5. **Hack** -- if fuzzing finds nothing, a lightweight LLM agent
+    (openCode headless) analyzes the patch, reads the LLVM source, and
+    attempts to construct a targeted test case.  z3 is available for
+    SMT-based counterexample search.  Time budget is configurable via
+    `LLVM_HACKME_HACK_BUDGET_SECONDS` (default 20 min).
+ 6. **Verify** -- each suspected bug is regression-tested against the
+    baseline `opt` to confirm it is a new issue.
+ 7. **Report** -- posts a GitHub issue comment with the IR reproducer
+    (crash stacktrace or Alive2 counterexample) and requests changes on
+    the PR.
 
 ## Future Scope
 

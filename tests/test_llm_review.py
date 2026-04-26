@@ -25,6 +25,7 @@ def reviewer() -> OpenAIPatchReviewer:
             debounce_seconds=300,
             baseline_update_interval_seconds=3600,
             fuzz_budget_seconds=600,
+            hack_budget_seconds=1200,
             max_patch_chars=1000,
             patch_chunk_chars=500,
             max_patch_chunks=4,

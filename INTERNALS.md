@@ -13,6 +13,7 @@ flowchart TD
     HackmeService --> BuildManager
     HackmeService --> FuzzRunner
     HackmeService --> report_result["report_result (reporting.py)"]
+    HackmeService --> opencode_headless["opencode headless<br/>(hack agent)"]
 ```
 
 Each component is a self-contained module under `llvm_hackme/`:
@@ -58,7 +59,9 @@ stateDiagram-v2
         CHECK_OLD --> BUG_FOUND : still reproduces
         CHECK_OLD --> FUZZ : no longer reproduces
         FUZZ --> BUG_FOUND : found bug
-        FUZZ --> PASSED : no bug found
+        FUZZ --> HACK : no bug found
+        HACK --> BUG_FOUND : found bug
+        HACK --> PASSED : no bug found
     }
 
     PROCESSING --> REVIEW_REJECTED : LLM reject
@@ -106,6 +109,46 @@ This means after a crash, any PR whose `processed_at` is still null will be re-p
 3. **PhaseOrdering test paths** (`llvm/test/Transforms/PhaseOrdering/...`) -- lowest priority; only used when no other test or source path matches.
 
 The same keyword list drives `is_relevant_pr_file()`, which determines whether a PR is interesting enough to process at all.
+
+## Hack Agent
+
+When mutation-based fuzzing finds no bug, a lightweight LLM agent runs as a second pass. The agent is defined in `.opencode/agents/hack.md` and invoked via `opencode run --agent hack` in headless mode (non-interactive JSON output, discarded).
+
+### Two-pipe handshake
+
+The Python service and the hack agent communicate through two named pipes (FIFOs) in the hack work directory:
+
+```
+Python (service.py)                   opencode (hack agent)
+─────────────────────                  ─────────────────────
+write context.json
+os.mkfifo(submit.pipe)
+os.mkfifo(response.pipe)
+                                       hack_context tool reads context.json
+                                       LLM analyzes patch & constructs IR
+                                       hack_submit(ir, pass_name, kind, desc)
+                                          │
+read(submit.pipe)  ◄──────────────────── write(submit.pipe, payload)
+                                          │
+_hack_verify(payload)                    open(response.pipe) blocks
+  ├─ regression confirmed ──► write(response.pipe, {success: true})
+  │   kill opencode ────────► (process terminated)
+  └─ rejected ──────────────► write(response.pipe, {success: false, reason})
+                                  │
+                               read(response.pipe) → return reason to LLM → retry
+```
+
+1. **Context file** (`context.json`) — written by the service; contains all binary paths, the patch file path, pass name, work directories, and LLVM source tree paths. The `hack_context` tool reads it.
+2. **Submit pipe** (`submit.pipe`) — agent writes a JSON payload `{ir, pass_name, kind, description}`. The Python service reads it and runs verification (`check_crash` / `check_miscompilation` on both baseline and PR opt).
+3. **Response pipe** (`response.pipe`) — Python writes `{success: true}` on confirmed regression (then kills opencode) or `{success: false, reason}` on failed verification (agent may retry).
+
+### Permissions and safety
+
+- `bash: deny`, `webfetch: deny`, `write: deny`, `edit: deny` — the agent cannot modify files or run shell commands.
+- `external_directory` — restricted to the two LLVM source trees (`llvm-project/`, `llvm-project-pr/`) and the hack scratch directory.
+- All opt/alive2 invocations go through custom TypeScript tools (`.opencode/tools/hack_*.ts`), which sanitize paths and limit output size.
+- z3 is invoked with memory (4 GB) and time (30 s) limits.
+- The Python service enforces the overall hack time budget (`LLVM_HACKME_HACK_BUDGET_SECONDS`, default 1200 s).
 
 ## IR Reproducer
 
