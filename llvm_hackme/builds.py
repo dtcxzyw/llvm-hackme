@@ -71,7 +71,7 @@ class BuildManager:
                 "-c",
                 "core.symlinks=false",
                 "apply",
-                "--ignore-space-change",
+                "--3way",
                 str(patch_path),
             ],
             cwd=self.config.llvm_project_pr_dir,
