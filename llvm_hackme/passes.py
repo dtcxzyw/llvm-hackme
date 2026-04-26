@@ -31,6 +31,7 @@ _SOURCE_KEYWORDS: list[tuple[str, str]] = [
     ("llvm/lib/Analysis/InstructionSimplify", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Analysis/ValueTracking", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Analysis/ConstantFolding", "instcombine<no-verify-fixpoint>"),
+    ("llvm/lib/IR/ConstantFold", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Support/KnownBits", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Support/KnownFPClass", "instcombine<no-verify-fixpoint>"),
     (
@@ -95,3 +96,15 @@ def guess_pass_name(patch_text: str) -> str | None:
 
 def is_relevant_pr_file(pr_file_path: str) -> bool:
     return any(pr_file_path.startswith(keyword) for keyword, _pass_name in ALL_KEYWORDS)
+
+
+def is_test_file(pr_file_path: str) -> bool:
+    return any(
+        pr_file_path.startswith(keyword) for keyword, _pass_name in _TEST_KEYWORDS
+    )
+
+
+def is_source_file(pr_file_path: str) -> bool:
+    return any(
+        pr_file_path.startswith(keyword) for keyword, _pass_name in _SOURCE_KEYWORDS
+    )
