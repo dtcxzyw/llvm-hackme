@@ -14,7 +14,7 @@ from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
 from llvm_hackme.models import BugKind, PullRequest, PullRequestUpdate, Reproducer
-from llvm_hackme.passes import guess_pass_name
+from llvm_hackme.passes import guess_pass_name, is_test_file
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
 from llvm_hackme.state import StateStore
@@ -157,22 +157,27 @@ class HackmeService:
                     pr_number,
                 )
 
-            fuzz_result = await self._fuzzer.run(
-                update.patch,
-                update.patch_sha256,
-                pr.head_sha,
-                toolchain,
-            )
+            has_tests = _patch_has_test_files(update.patch)
 
-            reproducer = fuzz_result.reproducer
-            if reproducer is not None:
-                try:
-                    verified = await verify_reproducer(reproducer, toolchain, pass_name)
-                except Exception:
-                    LOGGER.exception("Verification failed for PR #%s", pr_number)
-                    verified = None
-            else:
-                verified = None
+            verified: Reproducer | None = None
+            if has_tests:
+                fuzz_result = await self._fuzzer.run(
+                    update.patch,
+                    update.patch_sha256,
+                    pr.head_sha,
+                    toolchain,
+                )
+                reproducer = fuzz_result.reproducer
+                if reproducer is not None:
+                    try:
+                        verified = await verify_reproducer(
+                            reproducer, toolchain, pass_name
+                        )
+                    except Exception:
+                        LOGGER.exception("Verification failed for PR #%s", pr_number)
+                        verified = None
+
+            if verified is None:
                 hack_reproducer = await self._run_hack_agent(
                     update, toolchain, pass_name
                 )
@@ -365,6 +370,15 @@ class HackmeService:
             except Exception:
                 LOGGER.exception("Baseline update failed")
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
+
+
+def _patch_has_test_files(patch: str) -> bool:
+    for line in patch.split("\n"):
+        if line.startswith("diff --git a/"):
+            file_path = line.removeprefix("diff --git a/").split(" ", 1)[0]
+            if is_test_file(file_path):
+                return True
+    return False
 
 
 def _find_opencode() -> str | None:

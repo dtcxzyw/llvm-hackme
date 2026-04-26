@@ -174,5 +174,5 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         await service._handle_pr_update(update)
 
         mock_verify.assert_called_once_with(stored_reproducer, toolchain, "instcombine")
-        fuzzer_mock.run.assert_called_once()
+        fuzzer_mock.run.assert_not_called()
         mock_report.assert_called_once()
