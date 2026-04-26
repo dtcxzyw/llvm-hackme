@@ -36,58 +36,36 @@ Each component is a self-contained module under `llvm_hackme/`:
 
 A PR lives in one of these states across scan cycles:
 
-```
-                         +---------+
-                    +--->|  IDLE   |<-----------------------------+
-                    |    +----+----+                              |
-                    |         |                                   |
-                    |    scanner picks up                         |
-                    |    (head_sha or patch changed               |
-                    |     or processed_at is null)                |
-                    |         |                                   |
-                    |    +----v-----+                             |
-                    |    |PROCESSING|<--------+                   |
-                    |    +----+-----+         |                   |
-                    |         |               |                   |
-               LLM  |    +----+----+          |  new head_sha     |
-             rejects|    |         |          |  pushed (debounce |
-                    |    |  LLM    |          |  cancels task)    |
-                    v    | review  |          |                   |
-             +------+---+         |          |                   |
-             |  REVIEW   |  pass   +----------+                   |
-             | _REJECTED |         |                              |
-             +-----------+    +----v-----+                        |
-                              |  build &  |                        |
-                              |   check   |                        |
-                              +----+-----+                        |
-                                   |                              |
-                    +--------------+--------------+               |
-                    |                             |               |
-                    v                             v               |
-         +----------+----------+    +------------+----+           |
-         |  old reproducer     |    |  no old reproducer |           |
-         |  in state?          |    |  in state          |           |
-         +----------+----------+    +------------+----+           |
-                    |                             |               |
-         re-verify  |                             |  run fuzz     |
-            +-------v-------+                     v               |
-            |               |              +------+------+        |
-            | still crashes?|              |  fond crash |        |
-            |               |              |  or miscomp?|        |
-            +---+-------+---+              +---+-----+---+        |
-                |       |                      |     |            |
-            yes |       | no                   |yes  |no          |
-                |       |                      |     |            |
-                v       v                      v     v            |
-         +------+-+  +--+----+    +-------+  +-------+----+      |
-         | report  |  | fuzz  |   | report |  | mark as     |      |
-         | same bug|  +-------+   | new bug|  | PASSED      |------+
-         +---------+              +--------+  +------------+      |
-                                                                  |
-                                                                  |
-         +--------------------------------------------------------+
-         |  (next scan: if head_sha/patch changed, re-enter PROCESSING;
-         |   if head_sha/patch unchanged and processed_at is set, stay IDLE)
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+
+    IDLE --> PROCESSING : scanner picks up<br/>(head_sha changed or<br/>processed_at is null)
+
+    state PROCESSING {
+        REVIEW : LLM review
+        BUILD : build & check
+        CHECK_OLD : check old reproducer
+        FUZZ : run fuzz
+        [*] --> REVIEW
+        REVIEW --> BUILD : accept
+        REVIEW --> REJECTED : reject
+        BUILD --> CHECK_OLD : has old reproducer
+        BUILD --> FUZZ : no old reproducer
+        CHECK_OLD --> BUG_FOUND : still reproduces
+        CHECK_OLD --> FUZZ : no longer reproduces
+        FUZZ --> BUG_FOUND : found bug
+        FUZZ --> PASSED : no bug found
+    }
+
+    PROCESSING --> REVIEW_REJECTED : LLM reject
+    PROCESSING --> BUG_FOUND : bug confirmed
+    PROCESSING --> PASSED : clean
+    PROCESSING --> PROCESSING : new head_sha<br/>cancels debounce
+
+    REVIEW_REJECTED --> IDLE : new head_sha
+    BUG_FOUND --> IDLE : new head_sha
+    PASSED --> IDLE : new head_sha
 ```
 
 ## State Persistence
