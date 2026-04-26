@@ -19,6 +19,7 @@ class ToolchainPaths:
     baseline_opt: Path
     pr_opt: Path
     llvm_extract: Path
+    llvm_reduce: Path
     alive_tv: Path
     mutate: Path
     merge: Path
@@ -79,6 +80,7 @@ class BuildManager:
             baseline_opt=self.config.llvm_build_dir / "bin" / "opt",
             pr_opt=self.config.llvm_build_pr_dir / "bin" / "opt",
             llvm_extract=self.config.llvm_build_dir / "bin" / "llvm-extract",
+            llvm_reduce=self.config.llvm_build_dir / "bin" / "llvm-reduce",
             alive_tv=self.config.alive2_build_dir / "alive-tv",
             mutate=self.config.fuzz_tools_build_dir / "mutate",
             merge=self.config.fuzz_tools_build_dir / "merge",
@@ -137,7 +139,17 @@ class BuildManager:
             env=self._ccache_env(self.config.llvm_project_dir),
         )
         await run_command(
-            ["cmake", "--build", ".", "-j", "32", "-t", "opt", "llvm-extract"],
+            [
+                "cmake",
+                "--build",
+                ".",
+                "-j",
+                "32",
+                "-t",
+                "opt",
+                "llvm-extract",
+                "llvm-reduce",
+            ],
             cwd=self.config.llvm_build_dir,
             env=self._ccache_env(self.config.llvm_project_dir),
         )

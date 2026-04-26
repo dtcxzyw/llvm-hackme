@@ -103,6 +103,37 @@ class HackmeService:
                 LOGGER.exception("Failed to build PR #%s", pr_number)
                 return
 
+            stored = self._state.get_pull_state(pr_number)
+            if stored.reproducer is not None:
+                try:
+                    verified_existing = await verify_reproducer(
+                        stored.reproducer, toolchain
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Re-verification of existing reproducer failed for PR #%s",
+                        pr_number,
+                    )
+                    verified_existing = None
+                if verified_existing is not None:
+                    LOGGER.info(
+                        "PR #%s: existing reproducer still reproduces", pr_number
+                    )
+                    await report_result(
+                        self._github,
+                        self._state,
+                        update,
+                        verified_existing,
+                        toolchain.baseline_revision,
+                        self._service_login,
+                    )
+                    return
+                LOGGER.info(
+                    "PR #%s: existing reproducer no longer reproduces,"
+                    " running new fuzz",
+                    pr_number,
+                )
+
             fuzz_result = await self._fuzzer.run(
                 update.patch,
                 update.patch_sha256,

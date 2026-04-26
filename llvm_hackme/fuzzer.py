@@ -251,15 +251,19 @@ class FuzzRunner:
         except CommandError as exc:
             result = exc.result
             if result.returncode < 0:
+                source_path = src_file
+                reduced = await self._reduce_crash(src_file, toolchain, idx, work)
+                if reduced is not None:
+                    source_path = reduced
                 return Reproducer(
                     kind=BugKind.CRASH,
-                    source_path=src_file,
+                    source_path=source_path,
                     command=[
                         str(toolchain.pr_opt),
                         "-S",
                         "-o",
                         str(tgt_file),
-                        str(src_file),
+                        str(source_path),
                         f"-passes={PASS_NAME}",
                     ],
                     baseline_revision=toolchain.baseline_revision,
@@ -294,15 +298,36 @@ class FuzzRunner:
             or "ERROR" in stdout
             or "incorrect" in stdout.lower()
         ):
+            source_path = src_file
+            func_match = FUNC_RE.search(src_file.read_text())
+            if func_match:
+                extracted = work / f"correctness-{idx}.extracted.ll"
+                try:
+                    await run_command(
+                        [
+                            toolchain.llvm_extract,
+                            "-S",
+                            "-func",
+                            func_match.group(1),
+                            "-o",
+                            extracted,
+                            src_file,
+                        ],
+                        timeout=30,
+                    )
+                    if extracted.exists() and extracted.stat().st_size > 0:
+                        source_path = extracted
+                except CommandError:
+                    LOGGER.warning("llvm-extract failed for iteration %s", idx)
             return Reproducer(
                 kind=BugKind.MISCOMPILATION,
-                source_path=src_file,
+                source_path=source_path,
                 command=[
                     str(toolchain.pr_opt),
                     "-S",
                     "-o",
                     str(tgt_file),
-                    str(src_file),
+                    str(source_path),
                     f"-passes={PASS_NAME}",
                 ],
                 baseline_revision=toolchain.baseline_revision,
@@ -311,4 +336,39 @@ class FuzzRunner:
                 alive2_counterexample=stdout,
             )
 
+        return None
+
+    async def _reduce_crash(
+        self,
+        src_file: Path,
+        toolchain: ToolchainPaths,
+        idx: int,
+        work: Path,
+    ) -> Path | None:
+        test_script = work / f"interestingness-{idx}.sh"
+        test_script.write_text(
+            "#!/bin/bash\n"
+            f"'{toolchain.pr_opt}' -S -o /dev/null"
+            f" -passes={PASS_NAME} '$1' >/dev/null 2>&1\n"
+            "test $? -ne 0\n"
+        )
+        test_script.chmod(0o755)
+        reduced = work / f"correctness-{idx}.reduced.ll"
+        try:
+            await run_command(
+                [
+                    toolchain.llvm_reduce,
+                    f"--test={test_script}",
+                    str(src_file),
+                    "-o",
+                    str(reduced),
+                ],
+                timeout=120,
+                env=minimal_execution_env(),
+            )
+            if reduced.exists():
+                LOGGER.info("llvm-reduce succeeded for iteration %s", idx)
+                return reduced
+        except (CommandError, asyncio.TimeoutError):
+            LOGGER.warning("llvm-reduce failed for iteration %s", idx)
         return None
