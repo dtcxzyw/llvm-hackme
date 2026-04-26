@@ -2,14 +2,17 @@
 
 ## Architecture
 
-```
-main.py ──▶ HackmeTUI (Textual) ──▶ HackmeService
-               │                        │
-               ├─ status_callback       ├─ PullRequestScanner
-               └─ RichLog               ├─ OpenAIPatchReviewer
-                                         ├─ BuildManager
-                                         ├─ FuzzRunner
-                                         └─ report_result (reporting.py)
+```mermaid
+flowchart TD
+    main.py --> HackmeTUI
+    HackmeTUI --> HackmeService
+    HackmeTUI -.-> status_callback
+    HackmeTUI --> RichLog
+    HackmeService --> PullRequestScanner
+    HackmeService --> OpenAIPatchReviewer
+    HackmeService --> BuildManager
+    HackmeService --> FuzzRunner
+    HackmeService --> report_result["report_result (reporting.py)"]
 ```
 
 Each component is a self-contained module under `llvm_hackme/`:
