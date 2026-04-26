@@ -21,7 +21,6 @@ def _sanitize_command(cmds: list[str]) -> list[str]:
     if len(cmds) < 5:
         return cmds
     return ["opt", cmds[1], cmds[2], "/dev/null", "source.ll", cmds[5]]
-    return [cmds[0], cmds[1], cmds[2], "/dev/null", cmds[4], cmds[5]]
 
 
 def make_comment_body(
