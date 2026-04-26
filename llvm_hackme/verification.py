@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from llvm_hackme.builds import ToolchainPaths
@@ -11,10 +13,115 @@ from llvm_hackme.models import BugKind, Reproducer
 LOGGER = logging.getLogger(__name__)
 
 VERIFY_TIMEOUT = 120
+PASS_NAME = "instcombine<no-verify-fixpoint>"
 
 
 class VerificationError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class CrashInfo:
+    stacktrace: str
+
+
+@dataclass(frozen=True)
+class MiscompilationInfo:
+    alive2_output: str
+
+
+async def check_crash(
+    opt_bin: str | Path,
+    ir_source: Path,
+    *,
+    timeout: int = VERIFY_TIMEOUT,
+    memory_limit_bytes: int | None = None,
+) -> CrashInfo | None:
+    env = minimal_execution_env()
+    try:
+        await run_command(
+            [
+                str(opt_bin),
+                "-S",
+                "-o",
+                "/dev/null",
+                str(ir_source),
+                f"-passes={PASS_NAME}",
+            ],
+            timeout=timeout,
+            env=env,
+            memory_limit_bytes=memory_limit_bytes,
+        )
+    except CommandError as exc:
+        result = exc.result
+        stacktrace = (
+            result.stderr or result.stdout or f"signal {abs(result.returncode)}"
+        )
+        return CrashInfo(stacktrace=stacktrace)
+    except asyncio.TimeoutError:
+        return None
+    return None
+
+
+async def check_miscompilation(
+    opt_bin: str | Path,
+    alive_tv: str | Path,
+    ir_source: Path,
+    *,
+    timeout: int = VERIFY_TIMEOUT,
+    memory_limit_bytes: int | None = None,
+) -> MiscompilationInfo | None:
+    env = minimal_execution_env()
+
+    tgt = ir_source.with_suffix(".alive-check.tgt.ll")
+    try:
+        try:
+            await run_command(
+                [
+                    str(opt_bin),
+                    "-S",
+                    "-o",
+                    str(tgt),
+                    str(ir_source),
+                    f"-passes={PASS_NAME}",
+                ],
+                timeout=timeout,
+                env=env,
+                memory_limit_bytes=memory_limit_bytes,
+            )
+        except (CommandError, asyncio.TimeoutError):
+            return None
+
+        try:
+            alive_result = await run_command(
+                [
+                    str(alive_tv),
+                    "--smt-to=200",
+                    "--disable-undef-input",
+                    str(ir_source),
+                    str(tgt),
+                ],
+                timeout=timeout,
+                check=False,
+            )
+        except asyncio.TimeoutError:
+            return None
+
+        stdout = alive_result.stdout
+        if "0 incorrect transformations" not in stdout and (
+            "Transformation seems to be correct" in stdout
+            or "ERROR" in stdout
+            or "incorrect" in stdout.lower()
+        ):
+            return MiscompilationInfo(alive2_output=stdout)
+        return None
+    finally:
+        _try_unlink(tgt)
+
+
+def _try_unlink(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
 
 
 async def verify_reproducer(
@@ -22,172 +129,67 @@ async def verify_reproducer(
     toolchain: ToolchainPaths,
 ) -> Reproducer | None:
     if reproducer.kind == BugKind.CRASH:
-        return await _verify_crash(reproducer, toolchain)
+        return await _verify_regression_crash(reproducer, toolchain)
     if reproducer.kind == BugKind.MISCOMPILATION:
-        return await _verify_miscompilation(reproducer, toolchain)
+        return await _verify_regression_miscompilation(reproducer, toolchain)
     return None
 
 
-async def _verify_crash(
+async def _verify_regression_crash(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
 ) -> Reproducer | None:
     src = reproducer.source_path
-    if not src.exists():
-        LOGGER.warning("Crash reproducer source not found: %s", src)
-        return None
 
-    tgt_baseline = Path(str(src).replace(".src.ll", ".baseline.tgt.ll"))
-    min_env = minimal_execution_env()
-
-    cmd_opt_s = [
-        "-S",
-        "-o",
-        str(tgt_baseline),
-        str(src),
-        "-passes=instcombine<no-verify-fixpoint>",
-    ]
-
-    try:
-        await run_command(
-            [toolchain.baseline_opt] + cmd_opt_s,
-            timeout=VERIFY_TIMEOUT,
-            env=min_env,
-        )
-    except CommandError:
+    baseline_crash = await check_crash(toolchain.baseline_opt, src)
+    if baseline_crash is not None:
         LOGGER.warning("Baseline opt also crashes on %s — not a PR regression", src)
         return None
-    except asyncio.TimeoutError:
-        LOGGER.warning("Baseline opt timed out on %s", src)
+
+    pr_crash = await check_crash(toolchain.pr_opt, src)
+    if pr_crash is None:
+        LOGGER.warning("PR opt did not crash during re-verification of %s", src)
         return None
 
-    try:
-        await run_command(
-            [toolchain.pr_opt] + cmd_opt_s,
-            timeout=VERIFY_TIMEOUT,
-            env=min_env,
-        )
-    except CommandError as exc:
-        result = exc.result
-        stacktrace = (
-            result.stderr or result.stdout or f"signal {abs(result.returncode)}"
-        )
-        LOGGER.info("Verified crash reproducer: %s", src)
-        return Reproducer(
-            kind=BugKind.CRASH,
-            source_path=src,
-            command=reproducer.command,
-            baseline_revision=reproducer.baseline_revision,
-            pr_head_sha=reproducer.pr_head_sha,
-            patch_sha256=reproducer.patch_sha256,
-            stacktrace=stacktrace,
-        )
-    except asyncio.TimeoutError:
-        LOGGER.warning("PR opt timed out on %s during verification", src)
-        return None
-
-    LOGGER.warning("PR opt did not crash during re-verification of %s", src)
-    return None
+    LOGGER.info("Verified crash reproducer: %s", src)
+    return Reproducer(
+        kind=BugKind.CRASH,
+        source_path=src,
+        command=reproducer.command,
+        baseline_revision=reproducer.baseline_revision,
+        pr_head_sha=reproducer.pr_head_sha,
+        patch_sha256=reproducer.patch_sha256,
+        stacktrace=pr_crash.stacktrace,
+    )
 
 
-async def _verify_miscompilation(
+async def _verify_regression_miscompilation(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
 ) -> Reproducer | None:
     src = reproducer.source_path
-    if not src.exists():
-        LOGGER.warning("Miscompilation reproducer source not found: %s", src)
-        return None
 
-    tgt_baseline = Path(str(src).replace(".src.ll", ".baseline.tgt.ll"))
-    tgt_pr = Path(str(src).replace(".src.ll", ".verify.tgt.ll"))
-    min_env = minimal_execution_env()
-
-    try:
-        await run_command(
-            [
-                toolchain.baseline_opt,
-                "-S",
-                "-o",
-                tgt_baseline,
-                src,
-                "-passes=instcombine<no-verify-fixpoint>",
-            ],
-            timeout=VERIFY_TIMEOUT,
-            env=min_env,
-        )
-    except CommandError:
-        LOGGER.warning("Baseline opt failed on miscompilation source %s", src)
-        return None
-    except asyncio.TimeoutError:
-        LOGGER.warning("Baseline opt timed out on %s", src)
-        return None
-
-    alive_baseline = await run_command(
-        [
-            toolchain.alive_tv,
-            "--smt-to=200",
-            "--disable-undef-input",
-            src,
-            tgt_baseline,
-        ],
-        timeout=VERIFY_TIMEOUT,
-        check=False,
+    baseline_mis = await check_miscompilation(
+        toolchain.baseline_opt, toolchain.alive_tv, src
     )
-    if "0 incorrect transformations" not in alive_baseline.stdout:
+    if baseline_mis is not None:
         LOGGER.warning(
             "Baseline also has Alive2 issues on %s — not a PR regression", src
         )
         return None
 
-    try:
-        await run_command(
-            [
-                toolchain.pr_opt,
-                "-S",
-                "-o",
-                tgt_pr,
-                src,
-                "-passes=instcombine<no-verify-fixpoint>",
-            ],
-            timeout=VERIFY_TIMEOUT,
-            env=min_env,
-        )
-    except CommandError:
-        LOGGER.warning(
-            "PR opt crashed on %s during miscompilation re-verification", src
-        )
-        return None
-    except asyncio.TimeoutError:
-        LOGGER.warning("PR opt timed out on %s during re-verification", src)
+    pr_mis = await check_miscompilation(toolchain.pr_opt, toolchain.alive_tv, src)
+    if pr_mis is None:
+        LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
         return None
 
-    alive_pr = await run_command(
-        [
-            toolchain.alive_tv,
-            "--smt-to=200",
-            "--disable-undef-input",
-            src,
-            tgt_pr,
-        ],
-        timeout=VERIFY_TIMEOUT,
-        check=False,
+    LOGGER.info("Verified miscompilation reproducer: %s", src)
+    return Reproducer(
+        kind=BugKind.MISCOMPILATION,
+        source_path=src,
+        command=reproducer.command,
+        baseline_revision=reproducer.baseline_revision,
+        pr_head_sha=reproducer.pr_head_sha,
+        patch_sha256=reproducer.patch_sha256,
+        alive2_counterexample=pr_mis.alive2_output,
     )
-
-    if "0 incorrect transformations" not in alive_pr.stdout and (
-        "Transformation seems to be correct" in alive_pr.stdout
-        or "incorrect" in alive_pr.stdout.lower()
-    ):
-        LOGGER.info("Verified miscompilation reproducer: %s", src)
-        return Reproducer(
-            kind=BugKind.MISCOMPILATION,
-            source_path=src,
-            command=reproducer.command,
-            baseline_revision=reproducer.baseline_revision,
-            pr_head_sha=reproducer.pr_head_sha,
-            patch_sha256=reproducer.patch_sha256,
-            alive2_counterexample=alive_pr.stdout,
-        )
-
-    LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
-    return None
