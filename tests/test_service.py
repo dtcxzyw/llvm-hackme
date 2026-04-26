@@ -81,6 +81,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         service._build_lock.__aexit__ = AsyncMock()
         service._pr_tasks = {}
         service._service_login = "service-login"
+        service._status_callback = None
 
         await service._handle_pr_update(update)
 
@@ -165,6 +166,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         service._build_lock.__aexit__ = AsyncMock()
         service._pr_tasks = {}
         service._service_login = "service-login"
+        service._status_callback = None
 
         await service._handle_pr_update(update)
 

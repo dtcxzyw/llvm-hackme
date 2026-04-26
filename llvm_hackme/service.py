@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 from llvm_hackme.builds import BuildManager
 from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
-from llvm_hackme.models import PullRequestUpdate
+from llvm_hackme.models import PullRequest, PullRequestUpdate
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
 from llvm_hackme.state import StateStore
 from llvm_hackme.verification import verify_reproducer
 
 LOGGER = logging.getLogger(__name__)
+
+StatusCallback = Callable[[int, str, str, str], Awaitable[None]]
 
 
 class HackmeService:
@@ -24,6 +27,9 @@ class HackmeService:
         state: StateStore,
         github: GitHubClient,
         reviewer: OpenAIPatchReviewer,
+        *,
+        status_callback: StatusCallback | None = None,
+        service_login: str | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -34,16 +40,18 @@ class HackmeService:
         self._fuzzer = FuzzRunner(config)
         self._build_lock = asyncio.Lock()
         self._pr_tasks: dict[int, asyncio.Task[object]] = {}
-        self._service_login: str | None = None
+        self._service_login = service_login
+        self._status_callback = status_callback
 
     async def run_forever(self) -> None:
         config = self._config
-        if config.github_login_override:
-            self._service_login = config.github_login_override
-            LOGGER.info("Using overridden GitHub login: %s", self._service_login)
-        else:
-            self._service_login = await self._github.get_authenticated_login()
-            LOGGER.info("Authenticated GitHub login: %s", self._service_login)
+        if self._service_login is None:
+            if config.github_login_override:
+                self._service_login = config.github_login_override
+                LOGGER.info("Using overridden GitHub login: %s", self._service_login)
+            else:
+                self._service_login = await self._github.get_authenticated_login()
+                LOGGER.info("Authenticated GitHub login: %s", self._service_login)
 
         await asyncio.gather(
             self._scan_loop(),
@@ -75,7 +83,8 @@ class HackmeService:
         self._pr_tasks[pr_number] = asyncio.create_task(self._handle_pr_update(update))
 
     async def _handle_pr_update(self, update: PullRequestUpdate) -> None:
-        pr_number = update.pr.number
+        pr = update.pr
+        pr_number = pr.number
         LOGGER.info(
             "PR #%s update queued, waiting %s debounce seconds",
             pr_number,
@@ -88,16 +97,18 @@ class HackmeService:
             raise
 
         LOGGER.info("PR #%s debounce complete, starting processing", pr_number)
+        await self._emit_status(pr, "in_progress")
 
         review = await self._reviewer.review(update.patch)
         if not review.accepted:
             LOGGER.info("OpenAI review rejected PR #%s: %s", pr_number, review.reason)
+            await self._emit_status(pr, "review_rejected")
             return
 
         async with self._build_lock:
             try:
                 toolchain = await self._builds.prepare_pr_build(
-                    update.patch, update.pr.head_sha
+                    update.patch, pr.head_sha
                 )
             except Exception:
                 LOGGER.exception("Failed to build PR #%s", pr_number)
@@ -119,6 +130,7 @@ class HackmeService:
                     LOGGER.info(
                         "PR #%s: existing reproducer still reproduces", pr_number
                     )
+                    await self._emit_status(pr, "bug_found")
                     await report_result(
                         self._github,
                         self._state,
@@ -137,7 +149,7 @@ class HackmeService:
             fuzz_result = await self._fuzzer.run(
                 update.patch,
                 update.patch_sha256,
-                update.pr.head_sha,
+                pr.head_sha,
                 toolchain,
             )
 
@@ -153,6 +165,11 @@ class HackmeService:
 
             baseline_revision = toolchain.baseline_revision
 
+        if verified is not None:
+            await self._emit_status(pr, "bug_found")
+        else:
+            await self._emit_status(pr, "passed")
+
         await report_result(
             self._github,
             self._state,
@@ -163,6 +180,14 @@ class HackmeService:
         )
 
         LOGGER.info("PR #%s processing complete", pr_number)
+
+    async def _emit_status(self, pr: PullRequest, status: str) -> None:
+        if self._status_callback is None:
+            return
+        try:
+            await self._status_callback(pr.number, pr.title, pr.html_url, status)
+        except Exception:
+            LOGGER.debug("Status callback failed", exc_info=True)
 
     async def _baseline_update_loop(self) -> None:
         while True:
