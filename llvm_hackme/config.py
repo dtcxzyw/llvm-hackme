@@ -79,7 +79,9 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
-        work_dir = Path(os.environ.get("LLVM_HACKME_WORK_DIR", "work")).resolve()
+        work_dir = Path(
+            os.environ.get("LLVM_HACKME_WORK_DIR", "work/llvm-hackme")
+        ).resolve()
         return cls(
             github_token=_required_env("GITHUB_TOKEN"),
             github_repository=os.environ.get(

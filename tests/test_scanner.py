@@ -61,13 +61,13 @@ class TestScanner:
         assert len(stored.patch_sha256) == 64
 
     @pytest.mark.asyncio
-    async def test_scan_filters_non_instcombine(
+    async def test_scan_filters_non_relevant(
         self, mock_github: MagicMock, mock_state: StateStore
     ) -> None:
         now = datetime.now(timezone.utc)
         mock_pr = PullRequest(
             number=2,
-            title="Not InstCombine",
+            title="Not relevant",
             author_login="user",
             head_sha="sha2",
             updated_at=now,
@@ -89,7 +89,7 @@ class TestScanner:
         assert len(updates) == 0
 
     @pytest.mark.asyncio
-    async def test_scan_skips_already_seen(
+    async def test_scan_skips_already_processed(
         self, mock_github: MagicMock, mock_state: StateStore
     ) -> None:
         now = datetime.now(timezone.utc)
@@ -113,6 +113,8 @@ class TestScanner:
 
         patch_sha = hashlib.sha256(b"patch-body").hexdigest()
         mock_state.record_pr_update(3, head_sha="sha3", patch_sha256=patch_sha)
+        mock_state.mark_processed(3)
+
         scanner = PullRequestScanner(
             MagicMock(scan_overlap_seconds=300),
             mock_state,
@@ -120,3 +122,37 @@ class TestScanner:
         )
         updates = await scanner.scan_once()
         assert len(updates) == 0
+
+    @pytest.mark.asyncio
+    async def test_scan_resumes_unprocessed(
+        self, mock_github: MagicMock, mock_state: StateStore
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        mock_pr = PullRequest(
+            number=4,
+            title="Unprocessed",
+            author_login="user",
+            head_sha="sha4",
+            updated_at=now,
+            html_url="https://example.com",
+        )
+        mock_github.list_recent_open_pull_requests = AsyncMock(
+            return_value=([mock_pr], now)
+        )
+        mock_github.list_pull_files = AsyncMock(
+            return_value=["llvm/lib/Transforms/InstCombine/x.cpp"]
+        )
+        mock_github.get_pull_patch = AsyncMock(return_value="patch-body")
+
+        import hashlib
+
+        patch_sha = hashlib.sha256(b"patch-body").hexdigest()
+        mock_state.record_pr_update(4, head_sha="sha4", patch_sha256=patch_sha)
+
+        scanner = PullRequestScanner(
+            MagicMock(scan_overlap_seconds=300),
+            mock_state,
+            mock_github,
+        )
+        updates = await scanner.scan_once()
+        assert len(updates) == 1

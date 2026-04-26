@@ -42,7 +42,11 @@ class PullRequestScanner:
 
             patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
             stored = self.state.get_pull_state(pr.number)
-            if stored.head_sha == pr.head_sha and stored.patch_sha256 == patch_sha256:
+            if (
+                stored.head_sha == pr.head_sha
+                and stored.patch_sha256 == patch_sha256
+                and stored.processed_at is not None
+            ):
                 continue
 
             self.state.record_pr_update(

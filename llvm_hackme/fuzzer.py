@@ -17,21 +17,19 @@ from llvm_hackme.commands import (
 )
 from llvm_hackme.config import Config
 from llvm_hackme.models import BugKind, Reproducer
+from llvm_hackme.passes import guess_pass_name
 
 LOGGER = logging.getLogger(__name__)
 
-PASS_NAME = "instcombine<no-verify-fixpoint>"
+FUNC_RE = re.compile(r"define [^@]+@([-\w]+)\(")
+
+FUZZ_RECIPE = "correctness"
 
 
 def _is_safe_subpath(path: str) -> bool:
     if not path or path.startswith("/") or path.startswith(".."):
         return False
     return os.pardir not in path.split("/")
-
-
-FUNC_RE = re.compile(r"define [^@]+@([-\w]+)\(")
-
-FUZZ_RECIPE = "correctness"
 
 
 @dataclass(frozen=True)
@@ -53,6 +51,12 @@ class FuzzRunner:
         pr_head_sha: str,
         toolchain: ToolchainPaths,
     ) -> FuzzResult:
+        pass_name = guess_pass_name(patch)
+        if pass_name is None:
+            LOGGER.warning("Could not guess pass name from patch")
+            return FuzzResult(reproducer=None)
+        LOGGER.info("Guessed pass name from patch: %s", pass_name)
+
         work = self._config.fuzz_work_dir
         if work.exists():
             shutil.rmtree(work)
@@ -93,7 +97,7 @@ class FuzzRunner:
                     "-o",
                     seeds_ref_file,
                     seeds_file,
-                    f"-passes={PASS_NAME}",
+                    f"-passes={pass_name}",
                 ],
                 timeout=60,
                 env=minimal_execution_env(),
@@ -109,6 +113,7 @@ class FuzzRunner:
             toolchain,
             patch_sha256,
             pr_head_sha,
+            pass_name,
         )
 
     def _collect_seeds(self, patch: str) -> list[tuple[str, str]]:
@@ -172,6 +177,7 @@ class FuzzRunner:
         toolchain: ToolchainPaths,
         patch_sha256: str,
         pr_head_sha: str,
+        pass_name: str,
     ) -> FuzzResult:
         config = self._config
         sem = asyncio.Semaphore(config.max_fuzz_parallelism)
@@ -192,6 +198,7 @@ class FuzzRunner:
                         toolchain,
                         patch_sha256,
                         pr_head_sha,
+                        pass_name,
                     )
                 except Exception:
                     LOGGER.exception("Fuzz iteration %s failed", idx)
@@ -232,6 +239,7 @@ class FuzzRunner:
         toolchain: ToolchainPaths,
         patch_sha256: str,
         pr_head_sha: str,
+        pass_name: str,
     ) -> Reproducer | None:
         src_file = work / f"correctness-{idx}.src.ll"
         tgt_file = work / f"correctness-{idx}.tgt.ll"
@@ -253,7 +261,7 @@ class FuzzRunner:
                     "-o",
                     tgt_file,
                     src_file,
-                    f"-passes={PASS_NAME}",
+                    f"-passes={pass_name}",
                 ],
                 timeout=60,
                 env=min_env,
@@ -263,7 +271,9 @@ class FuzzRunner:
             result = exc.result
             if result.returncode < 0:
                 source_path = src_file
-                reduced = await self._reduce_crash(src_file, toolchain, idx, work)
+                reduced = await self._reduce_crash(
+                    src_file, toolchain, idx, work, pass_name
+                )
                 if reduced is not None:
                     source_path = reduced
                 return Reproducer(
@@ -275,7 +285,7 @@ class FuzzRunner:
                         "-o",
                         str(tgt_file),
                         str(source_path),
-                        f"-passes={PASS_NAME}",
+                        f"-passes={pass_name}",
                     ],
                     baseline_revision=toolchain.baseline_revision,
                     pr_head_sha=pr_head_sha,
@@ -339,7 +349,7 @@ class FuzzRunner:
                     "-o",
                     str(tgt_file),
                     str(source_path),
-                    f"-passes={PASS_NAME}",
+                    f"-passes={pass_name}",
                 ],
                 baseline_revision=toolchain.baseline_revision,
                 pr_head_sha=pr_head_sha,
@@ -355,12 +365,13 @@ class FuzzRunner:
         toolchain: ToolchainPaths,
         idx: int,
         work: Path,
+        pass_name: str,
     ) -> Path | None:
         test_script = work / f"interestingness-{idx}.sh"
         test_script.write_text(
             "#!/bin/bash\n"
             f"'{toolchain.pr_opt}' -S -o /dev/null"
-            f" -passes='{PASS_NAME}' '$1' >/dev/null 2>&1\n"
+            f" -passes='{pass_name}' '$1' >/dev/null 2>&1\n"
             "test $? -ne 0\n"
         )
         test_script.chmod(0o755)

@@ -92,7 +92,7 @@ class TestReduceCrash:
             reduced = work / "correctness-0.reduced.ll"
             reduced.write_text("reduced content")
 
-            result = await runner._reduce_crash(src, tc, 0, work)
+            result = await runner._reduce_crash(src, tc, 0, work, "instcombine")
 
             assert result is not None
             mock_run.assert_called_once()
@@ -121,6 +121,6 @@ class TestReduceCrash:
             new_callable=AsyncMock,
             side_effect=CommandError(error_result),
         ):
-            result = await runner._reduce_crash(src, tc, 0, work)
+            result = await runner._reduce_crash(src, tc, 0, work, "instcombine")
 
             assert result is None

@@ -10,6 +10,7 @@ from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
 from llvm_hackme.models import PullRequest, PullRequestUpdate
+from llvm_hackme.passes import guess_pass_name
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
 from llvm_hackme.state import StateStore
@@ -105,6 +106,11 @@ class HackmeService:
             await self._emit_status(pr, "review_rejected")
             return
 
+        pass_name = guess_pass_name(update.patch)
+        if pass_name is None:
+            LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
+            return
+
         async with self._build_lock:
             try:
                 toolchain = await self._builds.prepare_pr_build(
@@ -118,7 +124,7 @@ class HackmeService:
             if stored.reproducer is not None:
                 try:
                     verified_existing = await verify_reproducer(
-                        stored.reproducer, toolchain
+                        stored.reproducer, toolchain, pass_name
                     )
                 except Exception:
                     LOGGER.exception(
@@ -139,6 +145,7 @@ class HackmeService:
                         toolchain.baseline_revision,
                         self._service_login,
                     )
+                    self._state.mark_processed(pr_number)
                     return
                 LOGGER.info(
                     "PR #%s: existing reproducer no longer reproduces,"
@@ -156,7 +163,7 @@ class HackmeService:
             reproducer = fuzz_result.reproducer
             if reproducer is not None:
                 try:
-                    verified = await verify_reproducer(reproducer, toolchain)
+                    verified = await verify_reproducer(reproducer, toolchain, pass_name)
                 except Exception:
                     LOGGER.exception("Verification failed for PR #%s", pr_number)
                     verified = None
@@ -180,6 +187,7 @@ class HackmeService:
         )
 
         LOGGER.info("PR #%s processing complete", pr_number)
+        self._state.mark_processed(pr_number)
 
     async def _emit_status(self, pr: PullRequest, status: str) -> None:
         if self._status_callback is None:

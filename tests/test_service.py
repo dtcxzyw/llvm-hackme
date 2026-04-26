@@ -65,6 +65,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         patch(
             "llvm_hackme.service.report_result", new_callable=AsyncMock
         ) as mock_report,
+        patch("llvm_hackme.service.guess_pass_name", return_value="instcombine"),
     ):
         mock_verify.return_value = stored_reproducer
 
@@ -85,7 +86,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
 
         await service._handle_pr_update(update)
 
-        mock_verify.assert_called_once_with(stored_reproducer, toolchain)
+        mock_verify.assert_called_once_with(stored_reproducer, toolchain, "instcombine")
         mock_report.assert_called_once_with(
             service._github,
             state_mock,
@@ -150,6 +151,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         patch(
             "llvm_hackme.service.report_result", new_callable=AsyncMock
         ) as mock_report,
+        patch("llvm_hackme.service.guess_pass_name", return_value="instcombine"),
     ):
         mock_verify.return_value = None
 
@@ -170,6 +172,6 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
 
         await service._handle_pr_update(update)
 
-        mock_verify.assert_called_once_with(stored_reproducer, toolchain)
+        mock_verify.assert_called_once_with(stored_reproducer, toolchain, "instcombine")
         fuzzer_mock.run.assert_called_once()
         mock_report.assert_called_once()

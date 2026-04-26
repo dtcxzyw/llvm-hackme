@@ -1,7 +1,3 @@
 from __future__ import annotations
 
-INSTCOMBINE_PREFIX = "llvm/lib/Transforms/InstCombine/"
-
-
-def is_relevant_pr_file(path: str) -> bool:
-    return path.startswith(INSTCOMBINE_PREFIX)
+from llvm_hackme.passes import is_relevant_pr_file as is_relevant_pr_file

@@ -13,7 +13,6 @@ from llvm_hackme.models import BugKind, Reproducer
 LOGGER = logging.getLogger(__name__)
 
 VERIFY_TIMEOUT = 120
-PASS_NAME = "instcombine<no-verify-fixpoint>"
 
 
 class VerificationError(RuntimeError):
@@ -33,6 +32,7 @@ class MiscompilationInfo:
 async def check_crash(
     opt_bin: str | Path,
     ir_source: Path,
+    pass_name: str,
     *,
     timeout: int = VERIFY_TIMEOUT,
     memory_limit_bytes: int | None = None,
@@ -46,7 +46,7 @@ async def check_crash(
                 "-o",
                 "/dev/null",
                 str(ir_source),
-                f"-passes={PASS_NAME}",
+                f"-passes={pass_name}",
             ],
             timeout=timeout,
             env=env,
@@ -67,6 +67,7 @@ async def check_miscompilation(
     opt_bin: str | Path,
     alive_tv: str | Path,
     ir_source: Path,
+    pass_name: str,
     *,
     timeout: int = VERIFY_TIMEOUT,
     memory_limit_bytes: int | None = None,
@@ -83,7 +84,7 @@ async def check_miscompilation(
                     "-o",
                     str(tgt),
                     str(ir_source),
-                    f"-passes={PASS_NAME}",
+                    f"-passes={pass_name}",
                 ],
                 timeout=timeout,
                 env=env,
@@ -127,26 +128,28 @@ def _try_unlink(path: Path) -> None:
 async def verify_reproducer(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
+    pass_name: str,
 ) -> Reproducer | None:
     if reproducer.kind == BugKind.CRASH:
-        return await _verify_regression_crash(reproducer, toolchain)
+        return await _verify_regression_crash(reproducer, toolchain, pass_name)
     if reproducer.kind == BugKind.MISCOMPILATION:
-        return await _verify_regression_miscompilation(reproducer, toolchain)
+        return await _verify_regression_miscompilation(reproducer, toolchain, pass_name)
     return None
 
 
 async def _verify_regression_crash(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
+    pass_name: str,
 ) -> Reproducer | None:
     src = reproducer.source_path
 
-    baseline_crash = await check_crash(toolchain.baseline_opt, src)
+    baseline_crash = await check_crash(toolchain.baseline_opt, src, pass_name)
     if baseline_crash is not None:
         LOGGER.warning("Baseline opt also crashes on %s — not a PR regression", src)
         return None
 
-    pr_crash = await check_crash(toolchain.pr_opt, src)
+    pr_crash = await check_crash(toolchain.pr_opt, src, pass_name)
     if pr_crash is None:
         LOGGER.warning("PR opt did not crash during re-verification of %s", src)
         return None
@@ -166,11 +169,12 @@ async def _verify_regression_crash(
 async def _verify_regression_miscompilation(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
+    pass_name: str,
 ) -> Reproducer | None:
     src = reproducer.source_path
 
     baseline_mis = await check_miscompilation(
-        toolchain.baseline_opt, toolchain.alive_tv, src
+        toolchain.baseline_opt, toolchain.alive_tv, src, pass_name
     )
     if baseline_mis is not None:
         LOGGER.warning(
@@ -178,7 +182,9 @@ async def _verify_regression_miscompilation(
         )
         return None
 
-    pr_mis = await check_miscompilation(toolchain.pr_opt, toolchain.alive_tv, src)
+    pr_mis = await check_miscompilation(
+        toolchain.pr_opt, toolchain.alive_tv, src, pass_name
+    )
     if pr_mis is None:
         LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
         return None

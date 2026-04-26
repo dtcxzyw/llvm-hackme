@@ -26,7 +26,7 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = good
-            result = await check_crash("/opt/bin/opt", Path("test.ll"))
+            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
         assert result is None
 
     @pytest.mark.asyncio
@@ -38,7 +38,7 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.side_effect = exc
-            result = await check_crash("/opt/bin/opt", Path("test.ll"))
+            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
         assert result is not None
         assert result.stacktrace == "SIGSEGV\n"
 
@@ -51,7 +51,7 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.side_effect = exc
-            result = await check_crash("/opt/bin/opt", Path("test.ll"))
+            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
         assert result is not None
         assert "abort" in result.stacktrace
 
@@ -61,7 +61,7 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError
-            result = await check_crash("/opt/bin/opt", Path("test.ll"))
+            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
         assert result is None
 
 
@@ -80,7 +80,7 @@ class TestCheckMiscompilation:
         ) as mock_run:
             mock_run.side_effect = [good_opt, alive_ok]
             result = await check_miscompilation(
-                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll")
+                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll"), "instcombine"
             )
         assert result is None
 
@@ -98,7 +98,7 @@ class TestCheckMiscompilation:
         ) as mock_run:
             mock_run.side_effect = [good_opt, alive_bad]
             result = await check_miscompilation(
-                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll")
+                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll"), "instcombine"
             )
         assert result is not None
         assert "Value mismatch" in result.alive2_output
@@ -113,7 +113,7 @@ class TestCheckMiscompilation:
         ) as mock_run:
             mock_run.side_effect = exc
             result = await check_miscompilation(
-                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll")
+                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll"), "instcombine"
             )
         assert result is None
 
@@ -144,7 +144,7 @@ class TestVerifyReproducer:
             "llvm_hackme.verification.check_crash", new_callable=AsyncMock
         ) as mock_check:
             mock_check.side_effect = [None, CrashInfo(stacktrace="SIGSEGV")]
-            result = await verify_reproducer(reproducer, toolchain)
+            result = await verify_reproducer(reproducer, toolchain, "instcombine")
         assert result is not None
         assert result.kind == BugKind.CRASH
         assert result.stacktrace == "SIGSEGV"
@@ -177,7 +177,7 @@ class TestVerifyReproducer:
                 CrashInfo(stacktrace="SIGSEGV"),  # baseline crashes too
                 CrashInfo(stacktrace="SIGSEGV"),
             ]
-            result = await verify_reproducer(reproducer, toolchain)
+            result = await verify_reproducer(reproducer, toolchain, "instcombine")
         assert result is None
         mock_check.assert_called_once()  # only baseline checked
 
@@ -210,7 +210,7 @@ class TestVerifyReproducer:
                 None,  # baseline clean
                 MiscompilationInfo(alive2_output="Value mismatch"),
             ]
-            result = await verify_reproducer(reproducer, toolchain)
+            result = await verify_reproducer(reproducer, toolchain, "instcombine")
         assert result is not None
         assert result.kind == BugKind.MISCOMPILATION
         assert "Value mismatch" in result.alive2_counterexample

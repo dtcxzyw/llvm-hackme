@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -18,6 +19,7 @@ class StoredPullState:
     comment_id: int | None
     comment_url: str | None
     reproducer: Reproducer | None
+    processed_at: datetime | None
 
 
 class StateStore:
@@ -56,6 +58,10 @@ class StateStore:
                 )
                 """
             )
+            with contextlib.suppress(sqlite3.OperationalError):
+                self._conn.execute(
+                    "ALTER TABLE pull_state ADD COLUMN processed_at TEXT"
+                )
 
     def get_scan_watermark(self) -> datetime | None:
         value = self._get_metadata("scan_watermark")
@@ -77,7 +83,14 @@ class StateStore:
                 comment_id=None,
                 comment_url=None,
                 reproducer=None,
+                processed_at=None,
             )
+        processed_at = None
+        raw_processed = (
+            row["processed_at"] if "processed_at" in row.keys() else None  # noqa: SIM118
+        )
+        if raw_processed:
+            processed_at = datetime.fromisoformat(raw_processed)
         return StoredPullState(
             pr_number=pr_number,
             head_sha=row["head_sha"],
@@ -85,6 +98,7 @@ class StateStore:
             comment_id=row["comment_id"],
             comment_url=row["comment_url"],
             reproducer=_decode_reproducer(row["reproducer_json"]),
+            processed_at=processed_at,
         )
 
     def record_pr_update(
@@ -157,6 +171,21 @@ class StateStore:
                 WHERE pr_number = ?
                 """,
                 (datetime.utcnow().isoformat(), pr_number),
+            )
+
+    def mark_processed(self, pr_number: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                UPDATE pull_state
+                SET processed_at = ?, updated_at = ?
+                WHERE pr_number = ?
+                """,
+                (
+                    datetime.utcnow().isoformat(),
+                    datetime.utcnow().isoformat(),
+                    pr_number,
+                ),
             )
 
     def _get_metadata(self, key: str) -> str | None:
