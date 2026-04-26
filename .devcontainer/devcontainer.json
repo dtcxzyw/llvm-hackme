@@ -1,0 +1,26 @@
+{
+    "name": "llvm-hackme Dev Container",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": ".."
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/llvm-hackme,type=bind,consistency=cached",
+    "workspaceFolder": "/llvm-hackme",
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": "true",
+            "configureZshAsDefaultShell": "true",
+            "username": "llvm-hackme",
+            "upgradePackages": "true"
+        }
+    },
+    "containerUser": "llvm-hackme",
+    "remoteUser": "llvm-hackme",
+    "runArgs": [
+        "--network=host",
+        "--cap-add=SYS_PTRACE",
+        "--cap-add=PERFMON",
+        "--security-opt",
+        "seccomp=unconfined"
+    ]
+}
