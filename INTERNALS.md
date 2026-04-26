@@ -51,13 +51,16 @@ stateDiagram-v2
         BUILD : build & check
         CHECK_OLD : check old reproducer
         FUZZ : run fuzz
+        HACK : run hack agent
         [*] --> REVIEW
         REVIEW --> BUILD : accept
         REVIEW --> REJECTED : reject
         BUILD --> CHECK_OLD : has old reproducer
-        BUILD --> FUZZ : no old reproducer
+        BUILD --> FUZZ : no old reproducer,<br/>patch has tests
+        BUILD --> HACK : no old reproducer,<br/>source-only patch
         CHECK_OLD --> BUG_FOUND : still reproduces
-        CHECK_OLD --> FUZZ : no longer reproduces
+        CHECK_OLD --> FUZZ : no longer reproduces,<br/>patch has tests
+        CHECK_OLD --> HACK : no longer reproduces,<br/>source-only patch
         FUZZ --> BUG_FOUND : found bug
         FUZZ --> HACK : no bug found
         HACK --> BUG_FOUND : found bug
@@ -112,7 +115,7 @@ The same keyword list drives `is_relevant_pr_file()`, which determines whether a
 
 ## Hack Agent
 
-When mutation-based fuzzing finds no bug, a lightweight LLM agent runs as a second pass. The agent is defined in `.opencode/agents/hack.md` and invoked via `opencode run --agent hack` in headless mode (non-interactive JSON output, discarded).
+When mutation-based fuzzing finds no bug (or is skipped for source-only patches), a lightweight LLM agent runs. The agent is defined in `.opencode/agents/hack.md` and invoked via `opencode run --agent hack` in headless mode. Both stdout and stderr are merged into `hack_dir/opencode.log` for post-run auditing.
 
 ### Two-pipe handshake
 
@@ -138,7 +141,7 @@ _hack_verify(payload)                    open(response.pipe) blocks
                                read(response.pipe) → return reason to LLM → retry
 ```
 
-1. **Context file** (`context.json`) — written by the service; contains all binary paths, the patch file path, pass name, work directories, and LLVM source tree paths. The `hack_context` tool reads it.
+1. **Context file** (`context.json`) — written by the service; contains all binary paths, the patch file path, pass name, work directories, LLVM source tree paths, and `opt_memory_limit_bytes` (for the TS-side `prlimit` wrapper). The `hack_context` tool reads it.
 2. **Submit pipe** (`submit.pipe`) — agent writes a JSON payload `{ir, pass_name, kind, description}`. The Python service reads it and runs verification (`check_crash` / `check_miscompilation` on both baseline and PR opt).
 3. **Response pipe** (`response.pipe`) — Python writes `{success: true}` on confirmed regression (then kills opencode) or `{success: false, reason}` on failed verification (agent may retry).
 
@@ -146,9 +149,15 @@ _hack_verify(payload)                    open(response.pipe) blocks
 
 - `bash: deny`, `webfetch: deny`, `write: deny`, `edit: deny` — the agent cannot modify files or run shell commands.
 - `external_directory` — restricted to the two LLVM source trees (`llvm-project/`, `llvm-project-pr/`) and the hack scratch directory.
-- All opt/alive2 invocations go through custom TypeScript tools (`.opencode/tools/hack_*.ts`), which sanitize paths and limit output size.
-- z3 is invoked with memory (4 GB) and time (30 s) limits.
+- All opt/alive2 invocations go through custom TypeScript tools (`.opencode/tools/hack_*.ts`):
+  - **Path confinement** — `ir_path` arguments are resolved via `path.resolve` and checked to stay within `work_dir`; absolute paths and `..` traversal are rejected.
+  - **Memory limits** — opt and alive2 are wrapped with `prlimit --as=<bytes>` using the `opt_memory_limit_bytes` from context (1 GiB default).
+  - **Environment isolation** — all tool spawns use `minimalEnv()` (only `HOME`, `PATH`, `TMPDIR`, `LANG`, `LC_ALL`); secrets like `GITHUB_TOKEN` and `OPENAI_AUTH_KEY` are never exposed to child processes.
+  - **Output truncation** — stdout/stderr are truncated to the last 8 000 bytes for opt/alive2 and 12 000 bytes for z3.
+- `hack_submit` enforces a 10 MB IR payload limit; larger submissions are rejected.
+- z3 is invoked with memory (4 GB) and time (30 s) limits via its own `-memory:` and `-T:` flags.
 - The Python service enforces the overall hack time budget (`LLVM_HACKME_HACK_BUDGET_SECONDS`, default 1200 s).
+- Server-side verification (`_hack_verify`) also applies `memory_limit_bytes` when running `check_crash` / `check_miscompilation`.
 
 ## IR Reproducer
 

@@ -85,14 +85,14 @@ Subsequent runs only rebuild when the baseline moves forward.
 3. **Build** -- prepares a clean LLVM worktree at the PR head, builds
    `opt`, and assembles the full toolchain (baseline + PR opt,
    alive-tv, mutation tools).
-4. **Fuzz** -- extracts seed functions from `.ll` test files changed
-    in the patch, mutates them, and runs the PR `opt` with the guessed
-    opt pipeline.  Alive2 checks correctness.
- 5. **Hack** -- if fuzzing finds nothing, a lightweight LLM agent
-    (openCode headless) analyzes the patch, reads the LLVM source, and
-    attempts to construct a targeted test case.  z3 is available for
-    SMT-based counterexample search.  Time budget is configurable via
-    `LLVM_HACKME_HACK_BUDGET_SECONDS` (default 20 min).
+4. **Fuzz** — when the patch touches test files, extracts seed functions from
+    the changed `.ll` tests, mutates them, and runs the PR `opt` with the
+    guessed pipeline.  Alive2 checks correctness.
+5. **Hack** — if fuzzing finds nothing (or if the patch is source-only and
+    fuzz is skipped), a lightweight LLM agent (openCode headless) analyzes the
+    patch, reads the LLVM source, and attempts to construct a targeted test
+    case.  z3 is available for SMT-based counterexample search.  Time budget
+    is configurable via `LLVM_HACKME_HACK_BUDGET_SECONDS` (default 20 min).
  6. **Verify** -- each suspected bug is regression-tested against the
     baseline `opt` to confirm it is a new issue.
  7. **Report** -- posts a GitHub issue comment with the IR reproducer
