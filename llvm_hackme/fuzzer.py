@@ -133,11 +133,7 @@ class FuzzRunner:
             if line.startswith("diff --git a/"):
                 current_file = line.removeprefix("diff --git a/").split(" ", 1)[0]
                 continue
-            if (
-                current_file.endswith(".ll")
-                and line.startswith("+")
-                and not line.startswith("+++")
-            ):
+            if current_file.endswith(".ll"):
                 matched = FUNC_RE.search(line)
                 if matched:
                     func_name = matched.group(1)
