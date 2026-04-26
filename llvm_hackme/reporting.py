@@ -17,10 +17,14 @@ COMMENT_FIRST_LINE = "The following correctness issue was found by llvm-hackme."
 _MARKER_PREFIX = "<!-- llvm-hackme-"
 
 
-def _sanitize_command(cmds: list[str]) -> list[str]:
-    if len(cmds) < 5:
-        return cmds
-    return ["opt", cmds[1], cmds[2], "/dev/null", "source.ll", cmds[5]]
+def _make_run_line(command: list[str]) -> str:
+    pass_arg = ""
+    for arg in command:
+        if arg.startswith("-passes="):
+            pass_arg = arg
+            break
+    run = f"; RUN: opt {pass_arg} -S"
+    return run
 
 
 def make_comment_body(
@@ -51,10 +55,15 @@ def make_comment_body(
         lines.append("")
         lines.append(f"**Kind**: {reproducer.kind.value}")
         lines.append("")
-        lines.append("**Commands**:")
-        for cmd in _sanitize_command(reproducer.command):
-            lines.append(f"    {cmd}")
-        lines.append("")
+
+        if reproducer.source_content:
+            run_line = _make_run_line(reproducer.command)
+            lines.append("**IR Reproducer**:")
+            lines.append("```llvm")
+            lines.append(run_line)
+            lines.append(reproducer.source_content.strip())
+            lines.append("```")
+            lines.append("")
 
         if reproducer.kind == BugKind.CRASH and reproducer.stacktrace:
             lines.append("**Stacktrace**:")
@@ -70,13 +79,6 @@ def make_comment_body(
             lines.append("**Alive2 Counterexample**:")
             lines.append("```")
             lines.append(reproducer.alive2_counterexample.strip())
-            lines.append("```")
-            lines.append("")
-
-        if reproducer.source_content:
-            lines.append("**IR Source**:")
-            lines.append("```llvm")
-            lines.append(reproducer.source_content.strip())
             lines.append("```")
             lines.append("")
 
