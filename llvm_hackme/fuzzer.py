@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import shutil
 import time
@@ -20,6 +21,13 @@ from llvm_hackme.models import BugKind, Reproducer
 LOGGER = logging.getLogger(__name__)
 
 PASS_NAME = "instcombine<no-verify-fixpoint>"
+
+
+def _is_safe_subpath(path: str) -> bool:
+    if not path or path.startswith("/") or path.startswith(".."):
+        return False
+    return os.pardir not in path.split("/")
+
 
 FUNC_RE = re.compile(r"define [^@]+@([-\w]+)\(")
 
@@ -130,6 +138,9 @@ class FuzzRunner:
         toolchain: ToolchainPaths,
     ) -> bool:
         for i, (file, func) in enumerate(seeds):
+            if not _is_safe_subpath(file):
+                LOGGER.warning("Rejecting unsafe seed path: %s", file)
+                continue
             src = Path(toolchain.llvm_extract).parent.parent.joinpath(
                 "llvm-project-pr", file
             )
@@ -349,7 +360,7 @@ class FuzzRunner:
         test_script.write_text(
             "#!/bin/bash\n"
             f"'{toolchain.pr_opt}' -S -o /dev/null"
-            f" -passes={PASS_NAME} '$1' >/dev/null 2>&1\n"
+            f" -passes='{PASS_NAME}' '$1' >/dev/null 2>&1\n"
             "test $? -ne 0\n"
         )
         test_script.chmod(0o755)

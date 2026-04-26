@@ -116,7 +116,12 @@ class GitHubClient:
     async def get_authenticated_login(self) -> str:
         response = await self._request("GET", "/user")
         payload = _expect_json_object(response)
-        return str(payload["login"])
+        login = payload.get("login")
+        if isinstance(login, str):
+            return login
+        raise GitHubError(
+            "GitHub /user response missing 'login' field", retryable=False
+        )
 
     async def list_recent_open_pull_requests(
         self, watermark: datetime | None, overlap_seconds: int
@@ -173,7 +178,10 @@ class GitHubClient:
                 params={"per_page": 100, "page": page},
             )
             payload = _expect_json_list(response)
-            files.extend(str(item["filename"]) for item in payload)
+            for item in payload:
+                filename = item.get("filename")
+                if filename:
+                    files.append(str(filename))
             if "next" not in _parse_link_relations(response.headers):
                 break
             page += 1
@@ -253,7 +261,12 @@ def _expect_json_list(response: GitHubResponse) -> list[Any]:
 
 
 def _parse_github_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if not value:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def _is_draft(item: dict[str, Any]) -> bool:
@@ -271,13 +284,15 @@ def _is_revert(item: dict[str, Any]) -> bool:
 
 
 def _parse_pull_request(item: dict[str, Any]) -> PullRequest:
+    user = item.get("user")
+    head = item.get("head")
     return PullRequest(
-        number=int(item["number"]),
-        title=str(item["title"]),
-        author_login=str(item["user"]["login"]),
-        head_sha=str(item["head"]["sha"]),
-        updated_at=_parse_github_datetime(item["updated_at"]),
-        html_url=str(item["html_url"]),
+        number=int(item.get("number", 0)),
+        title=str(item.get("title", "")),
+        author_login=str(user.get("login")) if isinstance(user, dict) else "",
+        head_sha=str(head.get("sha")) if isinstance(head, dict) else "",
+        updated_at=_parse_github_datetime(str(item.get("updated_at", ""))),
+        html_url=str(item.get("html_url", "")),
         draft=bool(item.get("draft", False)),
         base_ref=_get_base_ref(item),
         patch_url=item.get("patch_url"),
@@ -292,9 +307,10 @@ def _get_base_ref(item: dict[str, Any]) -> str:
 
 
 def _parse_issue_comment(item: dict[str, Any]) -> IssueComment:
+    user = item.get("user")
     return IssueComment(
-        id=int(item["id"]),
-        html_url=str(item["html_url"]),
+        id=int(item.get("id", 0)),
+        html_url=str(item.get("html_url", "")),
         body=str(item.get("body") or ""),
-        author_login=str(item["user"]["login"]),
+        author_login=str(user.get("login")) if isinstance(user, dict) else "",
     )

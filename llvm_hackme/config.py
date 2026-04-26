@@ -16,7 +16,12 @@ def _int_env(name: str, default: int) -> int:
     value = os.environ.get(name)
     if value is None:
         return default
-    return int(value)
+    try:
+        return int(value)
+    except ValueError:
+        raise RuntimeError(
+            f"Environment variable {name} must be an integer, got: {value!r}"
+        ) from None
 
 
 @dataclass(frozen=True)

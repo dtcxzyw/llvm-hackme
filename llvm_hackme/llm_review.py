@@ -114,7 +114,20 @@ class OpenAIPatchReviewer:
                 reason=f"OpenAI API call failed for chunk {chunk_idx}/{chunk_total}",
             )
 
-        content = response.choices[0].message.content or ""
+        choices = response.choices
+        if not choices:
+            LOGGER.warning(
+                "OpenAI returned empty choices for chunk %s/%s",
+                chunk_idx,
+                chunk_total,
+            )
+            return ReviewDecision(
+                accepted=False,
+                reason=(
+                    f"OpenAI returned empty choices for chunk {chunk_idx}/{chunk_total}"
+                ),
+            )
+        content = choices[0].message.content or ""
         first_line = content.strip().split("\n", 1)[0].strip().lower()
 
         if first_line == "innocuous":

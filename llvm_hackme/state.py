@@ -181,4 +181,7 @@ class StateStore:
 def _decode_reproducer(value: str | None) -> Reproducer | None:
     if not value:
         return None
-    return Reproducer.from_json(json.loads(value))
+    try:
+        return Reproducer.from_json(json.loads(value))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None

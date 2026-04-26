@@ -69,13 +69,18 @@ class Reproducer:
 
     @classmethod
     def from_json(cls, payload: dict[str, Any]) -> Reproducer:
+        kind_raw = payload.get("kind", "")
+        try:
+            kind = BugKind(kind_raw)
+        except ValueError:
+            kind = BugKind.CRASH
         return cls(
-            kind=BugKind(payload["kind"]),
-            source_path=Path(payload["source_path"]),
-            command=list(payload["command"]),
-            baseline_revision=payload["baseline_revision"],
-            pr_head_sha=payload["pr_head_sha"],
-            patch_sha256=payload["patch_sha256"],
+            kind=kind,
+            source_path=Path(str(payload.get("source_path", "."))),
+            command=list(payload.get("command", [])),
+            baseline_revision=str(payload.get("baseline_revision", "")),
+            pr_head_sha=str(payload.get("pr_head_sha", "")),
+            patch_sha256=str(payload.get("patch_sha256", "")),
             stacktrace=payload.get("stacktrace"),
             alive2_counterexample=payload.get("alive2_counterexample"),
         )

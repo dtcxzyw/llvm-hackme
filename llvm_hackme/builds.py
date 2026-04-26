@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,10 +61,20 @@ class BuildManager:
     async def prepare_pr_build(self, patch: str, head_sha: str) -> ToolchainPaths:
         baseline_revision = await self.current_baseline_revision()
         await self._sync_pr_worktree(baseline_revision)
+        if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+            raise RuntimeError(f"Invalid head SHA: {head_sha!r}")
         patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
         await run_command(
-            ["git", "apply", "--index", patch_path], cwd=self.config.llvm_project_pr_dir
+            [
+                "git",
+                "-c",
+                "core.symlinks=false",
+                "apply",
+                "--ignore-space-change",
+                str(patch_path),
+            ],
+            cwd=self.config.llvm_project_pr_dir,
         )
         await self._configure_and_build_pr_opt()
         return self.toolchain_paths(baseline_revision)
