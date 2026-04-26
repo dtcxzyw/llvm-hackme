@@ -271,26 +271,30 @@ class HackmeService:
         opencode_log = open(  # noqa: ASYNC230,SIM115 — fd for subprocess
             str(hack_dir / "opencode.log"), "w"
         )
-        proc = await asyncio.create_subprocess_exec(
-            str(opencode_bin),
-            "run",
-            "--agent",
-            "hack",
-            "--model",
-            config.hack_model,
-            "--format",
-            "json",
-            "--thinking",
-            hack_prompt,
-            env={
-                **os.environ,
-                "HACK_CONTEXT_FILE": str(config.hack_context_file),
-                "HACK_SUBMIT_PIPE": str(submit_pipe),
-                "HACK_RESPONSE_PIPE": str(response_pipe),
-            },
-            stdout=opencode_log,
-            stderr=opencode_log,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(opencode_bin),
+                "run",
+                "--agent",
+                "hack",
+                "--model",
+                config.hack_model,
+                "--format",
+                "json",
+                "--thinking",
+                hack_prompt,
+                env={
+                    **os.environ,
+                    "HACK_CONTEXT_FILE": str(config.hack_context_file),
+                    "HACK_SUBMIT_PIPE": str(submit_pipe),
+                    "HACK_RESPONSE_PIPE": str(response_pipe),
+                },
+                stdout=opencode_log,
+                stderr=opencode_log,
+            )
+        except Exception:
+            opencode_log.close()
+            raise
 
         result_holder: dict[str, dict] = {}
         pipe_done = asyncio.Event()

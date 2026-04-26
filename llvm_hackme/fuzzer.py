@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 import shutil
 import time
 from dataclasses import dataclass
@@ -87,7 +88,6 @@ class FuzzRunner:
             return FuzzResult(reproducer=None)
 
         seeds_file = work / "seeds.ll"
-        seeds_ref_file = work / "seeds_ref.ll"
         try:
             await run_command(
                 [toolchain.merge, seeds_dir, seeds_file],
@@ -103,12 +103,13 @@ class FuzzRunner:
                     toolchain.baseline_opt,
                     "-S",
                     "-o",
-                    seeds_ref_file,
+                    "/dev/null",
                     seeds_file,
                     f"-passes={pass_name}",
                 ],
                 timeout=60,
                 env=minimal_execution_env(),
+                memory_limit_bytes=self._opt_memory_limit,
             )
         except CommandError:
             LOGGER.exception("baseline opt on seeds failed")
@@ -117,7 +118,6 @@ class FuzzRunner:
         return await self._fuzz_loop(
             work,
             seeds_file,
-            seeds_ref_file,
             toolchain,
             patch_sha256,
             pr_head_sha,
@@ -133,7 +133,11 @@ class FuzzRunner:
             if line.startswith("diff --git a/"):
                 current_file = line.removeprefix("diff --git a/").split(" ", 1)[0]
                 continue
-            if current_file.endswith(".ll"):
+            if (
+                current_file.endswith(".ll")
+                and line.startswith("+")
+                and not line.startswith("+++")
+            ):
                 matched = FUNC_RE.search(line)
                 if matched:
                     func_name = matched.group(1)
@@ -150,6 +154,7 @@ class FuzzRunner:
         seeds_dir: Path,
         toolchain: ToolchainPaths,
     ) -> bool:
+        any_success = False
         for i, (file, func) in enumerate(seeds):
             if not _is_safe_subpath(file):
                 LOGGER.warning("Rejecting unsafe seed path: %s", file)
@@ -175,13 +180,14 @@ class FuzzRunner:
                 )
             except CommandError:
                 LOGGER.warning("llvm-extract failed for %s @%s", file, func)
-        return True
+            else:
+                any_success = True
+        return any_success
 
     async def _fuzz_loop(
         self,
         work: Path,
         seeds_file: Path,
-        seeds_ref_file: Path,
         toolchain: ToolchainPaths,
         patch_sha256: str,
         pr_head_sha: str,
@@ -318,6 +324,8 @@ class FuzzRunner:
                 ],
                 timeout=60,
                 check=False,
+                env=min_env,
+                memory_limit_bytes=self._opt_memory_limit,
             )
         except asyncio.TimeoutError:
             return None
@@ -380,8 +388,9 @@ class FuzzRunner:
         test_script = work / f"interestingness-{idx}.sh"
         test_script.write_text(
             "#!/bin/bash\n"
-            f"'{toolchain.pr_opt}' -S -o /dev/null"
-            f" -passes='{pass_name}' '$1' >/dev/null 2>&1\n"
+            f"{shlex.quote(str(toolchain.pr_opt))} -S -o /dev/null"
+            f" -passes={shlex.quote(pass_name)}"
+            f" {shlex.quote('$1')} >/dev/null 2>&1\n"
             "test $? -ne 0\n"
         )
         test_script.chmod(0o755)

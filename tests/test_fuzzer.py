@@ -24,8 +24,7 @@ class TestCollectSeeds:
             "+}\n"
         )
         seeds = runner._collect_seeds(patch)
-        assert len(seeds) == 2
-        assert ("llvm/test/Transforms/InstCombine/test.ll", "foo") in seeds
+        assert len(seeds) == 1
         assert ("llvm/test/Transforms/InstCombine/test.ll", "bar") in seeds
 
     def test_skips_non_ll_files(self) -> None:
@@ -43,8 +42,8 @@ class TestCollectSeeds:
         runner = FuzzRunner(MagicMock())
         patch = (
             "diff --git a/test.ll b/test.ll\n"
-            " define i32 @foo(i32 %x) {\n"
-            " define i32 @foo(i32 %x) {\n"
+            "+define i32 @foo(i32 %x) {\n"
+            "+define i32 @foo(i32 %x) {\n"
         )
         seeds = runner._collect_seeds(patch)
         assert len(seeds) == 1
