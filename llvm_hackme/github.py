@@ -155,7 +155,7 @@ class GitHubClient:
                 if updated_at < cutoff:
                     stop = True
                     continue
-                if _is_draft(item) or not _targets_main(item):
+                if _is_draft(item) or not _targets_main(item) or _is_revert(item):
                     continue
                 prs.append(_parse_pull_request(item))
             if stop or "next" not in _parse_link_relations(response.headers):
@@ -263,6 +263,11 @@ def _is_draft(item: dict[str, Any]) -> bool:
 def _targets_main(item: dict[str, Any]) -> bool:
     base = item.get("base")
     return isinstance(base, dict) and base.get("ref") == "main"
+
+
+def _is_revert(item: dict[str, Any]) -> bool:
+    title = item.get("title")
+    return isinstance(title, str) and title.startswith("Revert ")
 
 
 def _parse_pull_request(item: dict[str, Any]) -> PullRequest:

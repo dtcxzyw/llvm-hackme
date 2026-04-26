@@ -9,6 +9,7 @@ import pytest
 from llvm_hackme.github import (
     GitHubClient,
     _is_draft,
+    _is_revert,
     _parse_issue_comment,
     _parse_pull_request,
     _targets_main,
@@ -71,6 +72,13 @@ class TestPullRequestParsing:
         assert _targets_main({"base": {"ref": "develop"}}) is False
         assert _targets_main({}) is False
         assert _targets_main({"base": {}}) is False
+
+    def test_is_revert(self) -> None:
+        assert _is_revert({"title": "Revert something"}) is True
+        assert _is_revert({"title": 'Revert "Fix crash"'}) is True
+        assert _is_revert({"title": "Fix Revert bug"}) is False
+        assert _is_revert({"title": ""}) is False
+        assert _is_revert({}) is False
 
     def test_parse_issue_comment(self) -> None:
         item = {
