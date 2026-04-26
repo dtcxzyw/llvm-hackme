@@ -22,6 +22,9 @@ from llvm_hackme.passes import guess_pass_name
 LOGGER = logging.getLogger(__name__)
 
 FUNC_RE = re.compile(r"define [^@]+@([-\w]+)\(")
+ALIVE2_INCORRECT_RE = re.compile(
+    r"[1-9]\d* incorrect transformations?|ERROR: Value mismatch"
+)
 
 
 def _is_safe_subpath(path: str) -> bool:
@@ -320,11 +323,11 @@ class FuzzRunner:
             return None
 
         stdout = result.stdout
-        if "0 incorrect transformations" not in stdout and (
-            "Transformation seems to be correct" in stdout
-            or "ERROR" in stdout
-            or "incorrect" in stdout.lower()
-        ):
+        correct = (
+            "0 incorrect transformations" in stdout
+            and "Transformation seems to be correct" in stdout
+        )
+        if not correct and ALIVE2_INCORRECT_RE.search(stdout):
             source_path = src_file
             func_match = FUNC_RE.search(src_file.read_text())
             if func_match:

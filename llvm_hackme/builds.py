@@ -65,17 +65,31 @@ class BuildManager:
             raise RuntimeError(f"Invalid head SHA: {head_sha!r}")
         patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
-        await run_command(
-            [
-                "git",
-                "-c",
-                "core.symlinks=false",
-                "apply",
-                "--3way",
-                str(patch_path),
-            ],
-            cwd=self.config.llvm_project_pr_dir,
-        )
+        try:
+            await run_command(
+                [
+                    "git",
+                    "-c",
+                    "core.symlinks=false",
+                    "apply",
+                    "--3way",
+                    str(patch_path),
+                ],
+                cwd=self.config.llvm_project_pr_dir,
+            )
+        except Exception:
+            LOGGER.exception(
+                "Failed to apply patch for %s, resetting worktree", head_sha
+            )
+            await run_command(
+                ["git", "reset", "--hard", baseline_revision],
+                cwd=self.config.llvm_project_pr_dir,
+            )
+            await run_command(
+                ["git", "clean", "-ffd"],
+                cwd=self.config.llvm_project_pr_dir,
+            )
+            raise
         await self._configure_and_build_pr_opt()
         return self.toolchain_paths(baseline_revision)
 

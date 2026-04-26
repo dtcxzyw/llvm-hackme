@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from llvm_hackme.models import BugKind, Reproducer
 LOGGER = logging.getLogger(__name__)
 
 VERIFY_TIMEOUT = 120
+ALIVE2_INCORRECT_RE = re.compile(
+    r"[1-9]\d* incorrect transformations?|ERROR: Value mismatch"
+)
 
 
 class VerificationError(RuntimeError):
@@ -54,6 +58,8 @@ async def check_crash(
         )
     except CommandError as exc:
         result = exc.result
+        if result.returncode >= 0:
+            return None
         stacktrace = (
             result.stderr or result.stdout or f"signal {abs(result.returncode)}"
         )
@@ -109,11 +115,11 @@ async def check_miscompilation(
             return None
 
         stdout = alive_result.stdout
-        if "0 incorrect transformations" not in stdout and (
-            "Transformation seems to be correct" in stdout
-            or "ERROR" in stdout
-            or "incorrect" in stdout.lower()
-        ):
+        correct = (
+            "0 incorrect transformations" in stdout
+            and "Transformation seems to be correct" in stdout
+        )
+        if not correct and ALIVE2_INCORRECT_RE.search(stdout):
             return MiscompilationInfo(alive2_output=stdout)
         return None
     finally:

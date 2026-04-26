@@ -42,10 +42,8 @@ export default tool({
     const correct =
       combined.includes("0 incorrect transformations") &&
       combined.includes("Transformation seems to be correct")
-    const miscompile =
-      !correct &&
-      (combined.includes("incorrect") ||
-        combined.includes("ERROR"))
+    const positive_incorrect = /[1-9]\d* incorrect transformations?/.test(combined)
+    const miscompile = !correct && positive_incorrect
     return JSON.stringify({
       exit_code: proc.exitCode,
       correct,

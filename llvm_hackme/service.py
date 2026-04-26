@@ -108,11 +108,13 @@ class HackmeService:
         if not review.accepted:
             LOGGER.info("OpenAI review rejected PR #%s: %s", pr_number, review.reason)
             await self._emit_status(pr, "review_rejected")
+            self._state.mark_processed(pr_number)
             return
 
         pass_name = guess_pass_name(update.patch)
         if pass_name is None:
             LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
+            self._state.mark_processed(pr_number)
             return
 
         async with self._build_lock:
@@ -122,6 +124,7 @@ class HackmeService:
                 )
             except Exception:
                 LOGGER.exception("Failed to build PR #%s", pr_number)
+                self._state.mark_processed(pr_number)
                 return
 
             stored = self._state.get_pull_state(pr_number)
@@ -294,12 +297,12 @@ class HackmeService:
 
         async def pipe_listener() -> None:
             try:
-                reader = await asyncio.to_thread(
-                    open, str(submit_pipe), "r", encoding="utf-8"
-                )
-                raw = reader.readline().strip()
-                with contextlib.suppress(OSError):
-                    reader.close()
+
+                def _read_pipe() -> str:
+                    with open(submit_pipe, encoding="utf-8") as reader:
+                        return reader.readline().strip()
+
+                raw = await asyncio.to_thread(_read_pipe)
                 if not raw:
                     pipe_done.set()
                     return
@@ -345,10 +348,15 @@ class HackmeService:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             await proc.wait()
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            raise
         finally:
-            await pipe_done.wait()
             if not pipe_task.done():
                 pipe_task.cancel()
+            await pipe_done.wait()
             self._cleanup_pipes(submit_pipe, response_pipe)
             opencode_log.close()
 

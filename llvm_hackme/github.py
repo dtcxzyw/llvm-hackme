@@ -102,10 +102,17 @@ class GitHubClient:
             )
 
         json_payload: Any | None
-        if response.headers.get("content-type", "").startswith("application/json"):
-            json_payload = response.json()
-        else:
-            json_payload = None
+        try:
+            if response.headers.get("content-type", "").startswith("application/json"):
+                json_payload = response.json()
+            else:
+                json_payload = None
+        except (ValueError, TypeError):
+            LOGGER.warning("GitHub API %s %s returned unparseable JSON", method, path)
+            raise GitHubError(
+                f"GitHub API {method} {path} returned unparseable JSON",
+                retryable=True,
+            ) from None
         return GitHubResponse(
             status_code=response.status_code,
             headers=response.headers,
