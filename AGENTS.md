@@ -34,7 +34,7 @@
 - Preserve a linear history. Do not force push except when rebasing a PR branch onto the latest `origin/main` and force-pushing that same PR branch update.
 - Do not amend commits that have already been pushed, and do not rewrite, replace, or reorder existing commits unless the user explicitly requests it.
 - Before starting work, ensure the worktree is clean; if prior changes are present, review them and commit the relevant ones before beginning new task work.
-- Commit changes proactively instead of letting them accumulate, and after each completed milestone, especially before pausing for user input at the end of a task, ensure the worktree is clean and all finished changes are committed.
+- Commit changes automatically after each completed milestone without waiting for the user to ask. After finishing a logical unit of work that passes tests and pre-commit checks, immediately stage and commit with a proper Conventional Commit message, then ensure the worktree is clean.
 - Never commit temporary files, scratch artifacts, ad hoc notes, or other non-durable byproducts.
 - Use specific Conventional Commits for every commit. When a commit is non-trivial, include a body describing what changed, why it changed, and what validation was performed; make the subject identify the precise logical unit and the body record the concrete scope of the change.
 - Split commits by logical unit so they stay focused and reviewable.
