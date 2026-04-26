@@ -1,5 +1,7 @@
 import { tool } from "@opencode-ai/plugin"
 
+const MAX_IR_BYTES = 10 * 1024 * 1024
+
 export default tool({
   description:
     "Submit a candidate reproducer to the Python service for verification.  If the bug is confirmed, the process exits.  Otherwise returns the verification failure reason so you can retry.",
@@ -18,6 +20,11 @@ export default tool({
       .describe("One-line description of the bug"),
   },
   async execute(args) {
+    const irBytes = new TextEncoder().encode(args.ir).length
+    if (irBytes > MAX_IR_BYTES) {
+      return `IR too large (${(irBytes / 1024 / 1024).toFixed(1)} MB).  Limit is ${MAX_IR_BYTES / 1024 / 1024} MB.  Reduce the test case.`
+    }
+
     const submitPipe = process.env.HACK_SUBMIT_PIPE
     const responsePipe = process.env.HACK_RESPONSE_PIPE
     if (!submitPipe || !responsePipe) {

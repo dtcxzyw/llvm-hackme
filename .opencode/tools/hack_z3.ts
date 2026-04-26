@@ -12,6 +12,7 @@ export default tool({
       stdin: Bun.plainText(args.smtlib2),
       stdout: "pipe",
       stderr: "pipe",
+      env: minimalEnv(),
     })
     const stdout = new TextDecoder().decode(proc.stdout)
     const stderr = new TextDecoder().decode(proc.stderr)
@@ -29,3 +30,13 @@ export default tool({
     })
   },
 })
+
+function minimalEnv() {
+  return {
+    HOME: process.env.HOME || "",
+    PATH: process.env.PATH || "",
+    TMPDIR: process.env.TMPDIR || "/tmp",
+    LANG: process.env.LANG || "C.UTF-8",
+    LC_ALL: process.env.LC_ALL || "C.UTF-8",
+  }
+}

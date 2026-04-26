@@ -1,3 +1,4 @@
+import path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 
 export default tool({
@@ -13,16 +14,24 @@ export default tool({
   },
   async execute(args) {
     const ctx = loadContext()
-    const baseline = Bun.resolveSync(args.baseline_ir_path, ctx.work_dir)
-    const pr = Bun.resolveSync(args.pr_ir_path, ctx.work_dir)
+    const baseline = resolveConfined(args.baseline_ir_path, ctx.work_dir)
+    const pr = resolveConfined(args.pr_ir_path, ctx.work_dir)
+    const cmd: string[] = []
+    if (ctx.opt_memory_limit_bytes) {
+      const prlimit = Bun.which("prlimit")
+      if (prlimit) {
+        cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
+      }
+    }
+    cmd.push(
+      ctx.alive_tv,
+      "--smt-to=10000",
+      "--disable-undef-input",
+      baseline,
+      pr,
+    )
     const proc = Bun.spawnSync({
-      cmd: [
-        ctx.alive_tv,
-        "--smt-to=10000",
-        "--disable-undef-input",
-        baseline,
-        pr,
-      ],
+      cmd,
       env: minimalEnv(),
       stdout: "pipe",
       stderr: "pipe",
@@ -36,8 +45,7 @@ export default tool({
     const miscompile =
       !correct &&
       (combined.includes("incorrect") ||
-        combined.includes("ERROR") ||
-        combined.includes("Transformation seems to be correct"))
+        combined.includes("ERROR"))
     return JSON.stringify({
       exit_code: proc.exitCode,
       correct,
@@ -51,6 +59,16 @@ function loadContext() {
   const f = process.env.HACK_CONTEXT_FILE
   if (!f) throw new Error("HACK_CONTEXT_FILE not set")
   return JSON.parse(new TextDecoder().decode(Bun.file(f).bytes()))
+}
+
+function resolveConfined(rel: string, base: string): string {
+  if (!rel || !base) throw new Error("path arguments are required")
+  const resolved = path.resolve(base, rel)
+  const sep = path.sep
+  if (resolved !== base && !resolved.startsWith(base + sep)) {
+    throw new Error(`Path "${rel}" escapes work directory`)
+  }
+  return resolved
 }
 
 function minimalEnv() {

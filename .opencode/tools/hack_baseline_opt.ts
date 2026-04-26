@@ -1,3 +1,4 @@
+import path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 
 export default tool({
@@ -13,9 +14,19 @@ export default tool({
   },
   async execute(args) {
     const ctx = loadContext()
-    const resolved = Bun.resolveSync(args.ir_path, ctx.work_dir)
+    const resolved = resolveConfined(args.ir_path, ctx.work_dir)
+
+    const cmd: string[] = []
+    if (ctx.opt_memory_limit_bytes) {
+      const prlimit = Bun.which("prlimit")
+      if (prlimit) {
+        cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
+      }
+    }
+    cmd.push(ctx.baseline_opt, "-S", "-o", "/dev/null", resolved, `-passes=${args.pass_name}`)
+
     const proc = Bun.spawnSync({
-      cmd: [ctx.baseline_opt, "-S", "-o", "/dev/null", resolved, `-passes=${args.pass_name}`],
+      cmd,
       env: minimalEnv(),
       stdout: "pipe",
       stderr: "pipe",
@@ -37,6 +48,16 @@ function loadContext() {
   const f = process.env.HACK_CONTEXT_FILE
   if (!f) throw new Error("HACK_CONTEXT_FILE not set")
   return JSON.parse(new TextDecoder().decode(Bun.file(f).bytes()))
+}
+
+function resolveConfined(rel: string, base: string): string {
+  if (!rel || !base) throw new Error("ir_path and work_dir are required")
+  const resolved = path.resolve(base, rel)
+  const sep = path.sep
+  if (resolved !== base && !resolved.startsWith(base + sep)) {
+    throw new Error(`Path "${rel}" escapes work directory`)
+  }
+  return resolved
 }
 
 function minimalEnv() {

@@ -236,6 +236,7 @@ class HackmeService:
             "alive_tv": str(toolchain.alive_tv),
             "baseline_src_dir": str(config.llvm_project_dir),
             "pr_src_dir": str(config.llvm_project_pr_dir),
+            "opt_memory_limit_bytes": config.opt_memory_limit_bytes,
         }
         config.hack_context_file.write_text(json.dumps(context))
 
@@ -264,6 +265,9 @@ class HackmeService:
         )
 
         LOGGER.info("Launching hack agent for PR #%s", update.pr.number)
+        opencode_log = open(  # noqa: ASYNC230,SIM115 — fd for subprocess
+            str(hack_dir / "opencode.log"), "w"
+        )
         proc = await asyncio.create_subprocess_exec(
             str(opencode_bin),
             "run",
@@ -279,8 +283,8 @@ class HackmeService:
                 "HACK_SUBMIT_PIPE": str(submit_pipe),
                 "HACK_RESPONSE_PIPE": str(response_pipe),
             },
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=opencode_log,
+            stderr=opencode_log,
         )
 
         result_holder: dict[str, dict] = {}
@@ -299,7 +303,11 @@ class HackmeService:
                     return
                 payload = json.loads(raw)
                 hack_reproducer = await _hack_verify(
-                    payload, hack_dir, toolchain, update
+                    payload,
+                    hack_dir,
+                    toolchain,
+                    update,
+                    memory_limit_bytes=config.opt_memory_limit_bytes,
                 )
 
                 response = {"success": False, "reason": "unknown"}
@@ -340,6 +348,7 @@ class HackmeService:
             if not pipe_task.done():
                 pipe_task.cancel()
             self._cleanup_pipes(submit_pipe, response_pipe)
+            opencode_log.close()
 
         result = result_holder.get("reproducer")
         if result is not None:
@@ -401,6 +410,8 @@ async def _hack_verify(
     hack_dir: Path,
     toolchain: ToolchainPaths,
     update: PullRequestUpdate,
+    *,
+    memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
     from llvm_hackme.verification import check_crash, check_miscompilation
 
@@ -420,10 +431,20 @@ async def _hack_verify(
         kind = BugKind.CRASH
 
     if kind == BugKind.CRASH:
-        baseline_result = await check_crash(toolchain.baseline_opt, src_file, pass_name)
+        baseline_result = await check_crash(
+            toolchain.baseline_opt,
+            src_file,
+            pass_name,
+            memory_limit_bytes=memory_limit_bytes,
+        )
         if baseline_result is not None:
             return None
-        pr_result = await check_crash(toolchain.pr_opt, src_file, pass_name)
+        pr_result = await check_crash(
+            toolchain.pr_opt,
+            src_file,
+            pass_name,
+            memory_limit_bytes=memory_limit_bytes,
+        )
         if pr_result is None:
             return None
         return Reproducer(
@@ -449,6 +470,7 @@ async def _hack_verify(
             toolchain.alive_tv,
             src_file,
             pass_name,
+            memory_limit_bytes=memory_limit_bytes,
         )
         if baseline_result is not None:
             return None
@@ -457,6 +479,7 @@ async def _hack_verify(
             toolchain.alive_tv,
             src_file,
             pass_name,
+            memory_limit_bytes=memory_limit_bytes,
         )
         if pr_result is None:
             return None
