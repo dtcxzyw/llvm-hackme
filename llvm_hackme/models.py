@@ -26,6 +26,8 @@ class PullRequest:
     head_sha: str
     updated_at: datetime
     html_url: str
+    draft: bool = False
+    base_ref: str = ""
     patch_url: str | None = None
 
 

@@ -8,8 +8,10 @@ import pytest
 
 from llvm_hackme.github import (
     GitHubClient,
+    _is_draft,
     _parse_issue_comment,
     _parse_pull_request,
+    _targets_main,
 )
 
 
@@ -40,6 +42,35 @@ class TestPullRequestParsing:
         assert pr.head_sha == "abc123def"
         assert pr.updated_at == datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
         assert pr.html_url == "https://github.com/llvm/llvm-project/pull/123"
+        assert pr.draft is False
+        assert pr.base_ref == ""
+
+    def test_parse_pull_request_with_draft_and_base(self) -> None:
+        item = {
+            "number": 124,
+            "title": "Draft PR",
+            "user": {"login": "user"},
+            "head": {"sha": "def456"},
+            "updated_at": "2024-06-01T12:00:00Z",
+            "html_url": "https://github.com/llvm/llvm-project/pull/124",
+            "draft": True,
+            "base": {"ref": "main"},
+        }
+        pr = _parse_pull_request(item)
+        assert pr.number == 124
+        assert pr.draft is True
+        assert pr.base_ref == "main"
+
+    def test_is_draft(self) -> None:
+        assert _is_draft({"draft": True}) is True
+        assert _is_draft({"draft": False}) is False
+        assert _is_draft({}) is False
+
+    def test_targets_main(self) -> None:
+        assert _targets_main({"base": {"ref": "main"}}) is True
+        assert _targets_main({"base": {"ref": "develop"}}) is False
+        assert _targets_main({}) is False
+        assert _targets_main({"base": {}}) is False
 
     def test_parse_issue_comment(self) -> None:
         item = {

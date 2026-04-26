@@ -155,6 +155,8 @@ class GitHubClient:
                 if updated_at < cutoff:
                     stop = True
                     continue
+                if _is_draft(item) or not _targets_main(item):
+                    continue
                 prs.append(_parse_pull_request(item))
             if stop or "next" not in _parse_link_relations(response.headers):
                 break
@@ -254,6 +256,15 @@ def _parse_github_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _is_draft(item: dict[str, Any]) -> bool:
+    return bool(item.get("draft", False))
+
+
+def _targets_main(item: dict[str, Any]) -> bool:
+    base = item.get("base")
+    return isinstance(base, dict) and base.get("ref") == "main"
+
+
 def _parse_pull_request(item: dict[str, Any]) -> PullRequest:
     return PullRequest(
         number=int(item["number"]),
@@ -262,8 +273,17 @@ def _parse_pull_request(item: dict[str, Any]) -> PullRequest:
         head_sha=str(item["head"]["sha"]),
         updated_at=_parse_github_datetime(item["updated_at"]),
         html_url=str(item["html_url"]),
+        draft=bool(item.get("draft", False)),
+        base_ref=_get_base_ref(item),
         patch_url=item.get("patch_url"),
     )
+
+
+def _get_base_ref(item: dict[str, Any]) -> str:
+    base = item.get("base")
+    if isinstance(base, dict):
+        return str(base.get("ref", ""))
+    return ""
 
 
 def _parse_issue_comment(item: dict[str, Any]) -> IssueComment:
