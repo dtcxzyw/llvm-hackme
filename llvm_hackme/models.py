@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+
+class BugKind(str, Enum):
+    CRASH = "crash"
+    MISCOMPILATION = "miscompilation"
+
+
+class CommentState(str, Enum):
+    BUG_FOUND = "bug_found"
+    STILL_REPRODUCES = "still_reproduces"
+    NO_ISSUE_FOUND_FOR_CURRENT_PATCH = "no_issue_found_for_current_patch"
+
+
+@dataclass(frozen=True)
+class PullRequest:
+    number: int
+    title: str
+    author_login: str
+    head_sha: str
+    updated_at: datetime
+    html_url: str
+    patch_url: str | None = None
+
+
+@dataclass(frozen=True)
+class PullRequestUpdate:
+    pr: PullRequest
+    patch: str
+    patch_sha256: str
+
+
+@dataclass(frozen=True)
+class ReviewDecision:
+    accepted: bool
+    reason: str
+
+
+@dataclass(frozen=True)
+class Reproducer:
+    kind: BugKind
+    source_path: Path
+    command: list[str]
+    baseline_revision: str
+    pr_head_sha: str
+    patch_sha256: str
+    stacktrace: str | None = None
+    alive2_counterexample: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind.value,
+            "source_path": str(self.source_path),
+            "command": self.command,
+            "baseline_revision": self.baseline_revision,
+            "pr_head_sha": self.pr_head_sha,
+            "patch_sha256": self.patch_sha256,
+            "stacktrace": self.stacktrace,
+            "alive2_counterexample": self.alive2_counterexample,
+        }
+
+    @classmethod
+    def from_json(cls, payload: dict[str, Any]) -> Reproducer:
+        return cls(
+            kind=BugKind(payload["kind"]),
+            source_path=Path(payload["source_path"]),
+            command=list(payload["command"]),
+            baseline_revision=payload["baseline_revision"],
+            pr_head_sha=payload["pr_head_sha"],
+            patch_sha256=payload["patch_sha256"],
+            stacktrace=payload.get("stacktrace"),
+            alive2_counterexample=payload.get("alive2_counterexample"),
+        )
