@@ -32,6 +32,13 @@ def _is_safe_subpath(path: str) -> bool:
     return os.pardir not in path.split("/")
 
 
+def _read_content(path: Path) -> str | None:
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return None
+
+
 @dataclass(frozen=True)
 class FuzzResult:
     reproducer: Reproducer | None
@@ -293,6 +300,7 @@ class FuzzRunner:
                     stacktrace=result.stderr
                     or result.stdout
                     or f"signal {abs(result.returncode)}",
+                    source_content=_read_content(source_path),
                 )
             return None
         except asyncio.TimeoutError:
@@ -355,6 +363,7 @@ class FuzzRunner:
                 pr_head_sha=pr_head_sha,
                 patch_sha256=patch_sha256,
                 alive2_counterexample=stdout,
+                source_content=_read_content(source_path),
             )
 
         return None

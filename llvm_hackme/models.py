@@ -54,6 +54,7 @@ class Reproducer:
     patch_sha256: str
     stacktrace: str | None = None
     alive2_counterexample: str | None = None
+    source_content: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -65,6 +66,7 @@ class Reproducer:
             "patch_sha256": self.patch_sha256,
             "stacktrace": self.stacktrace,
             "alive2_counterexample": self.alive2_counterexample,
+            "source_content": self.source_content,
         }
 
     @classmethod
@@ -83,4 +85,5 @@ class Reproducer:
             patch_sha256=str(payload.get("patch_sha256", "")),
             stacktrace=payload.get("stacktrace"),
             alive2_counterexample=payload.get("alive2_counterexample"),
+            source_content=payload.get("source_content"),
         )

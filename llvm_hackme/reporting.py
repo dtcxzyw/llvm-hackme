@@ -17,6 +17,13 @@ COMMENT_FIRST_LINE = "The following correctness issue was found by llvm-hackme."
 _MARKER_PREFIX = "<!-- llvm-hackme-"
 
 
+def _sanitize_command(cmds: list[str]) -> list[str]:
+    if len(cmds) < 5:
+        return cmds
+    return ["opt", cmds[1], cmds[2], "/dev/null", "source.ll", cmds[5]]
+    return [cmds[0], cmds[1], cmds[2], "/dev/null", cmds[4], cmds[5]]
+
+
 def make_comment_body(
     state: CommentState,
     reproducer: Reproducer | None,
@@ -46,7 +53,7 @@ def make_comment_body(
         lines.append(f"**Kind**: {reproducer.kind.value}")
         lines.append("")
         lines.append("**Commands**:")
-        for cmd in reproducer.command:
+        for cmd in _sanitize_command(reproducer.command):
             lines.append(f"    {cmd}")
         lines.append("")
 
@@ -67,7 +74,13 @@ def make_comment_body(
             lines.append("```")
             lines.append("")
 
-        lines.append(f"**Source**: `{reproducer.source_path}`")
+        if reproducer.source_content:
+            lines.append("**IR Source**:")
+            lines.append("```llvm")
+            lines.append(reproducer.source_content.strip())
+            lines.append("```")
+            lines.append("")
+
         lines.append(f"**Baseline Revision**: `{reproducer.baseline_revision}`")
         lines.append(f"**PR Head SHA**: `{reproducer.pr_head_sha}`")
         lines.append(f"**Patch SHA256**: `{reproducer.patch_sha256}`")
@@ -131,6 +144,7 @@ async def report_result(
             patch_sha256=reproducer.patch_sha256,
             stacktrace=reproducer.stacktrace,
             alive2_counterexample=reproducer.alive2_counterexample,
+            source_content=reproducer.source_content,
         )
 
     existing_comments = await github.list_issue_comments(pr_update.pr.number)
