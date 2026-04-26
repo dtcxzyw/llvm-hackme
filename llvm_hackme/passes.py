@@ -84,24 +84,13 @@ ALL_KEYWORDS: list[tuple[str, str]] = _TEST_KEYWORDS + _O3_KEYWORD + _SOURCE_KEY
 
 
 def guess_pass_name(patch_text: str) -> str | None:
-    for line in patch_text.split("\n"):
-        if line.startswith("diff --git a/"):
-            file_path = line.removeprefix("diff --git a/").split(" ", 1)[0]
-            for keyword, pass_name in _TEST_KEYWORDS:
-                if file_path.startswith(keyword):
-                    return pass_name
-    for line in patch_text.split("\n"):
-        if line.startswith("diff --git a/"):
-            file_path = line.removeprefix("diff --git a/").split(" ", 1)[0]
-            for keyword, pass_name in _SOURCE_KEYWORDS:
-                if file_path.startswith(keyword):
-                    return pass_name
-    for line in patch_text.split("\n"):
-        if line.startswith("diff --git a/"):
-            file_path = line.removeprefix("diff --git a/").split(" ", 1)[0]
-            for keyword, pass_name in _O3_KEYWORD:
-                if file_path.startswith(keyword):
-                    return pass_name
+    for layer in (_TEST_KEYWORDS, _SOURCE_KEYWORDS, _O3_KEYWORD):
+        for line in patch_text.split("\n"):
+            if line.startswith("diff --git a/"):
+                file_path = line.removeprefix("diff --git a/").split(" ", 1)[0]
+                for keyword, pass_name in layer:
+                    if file_path.startswith(keyword):
+                        return pass_name
     return None
 
 

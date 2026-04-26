@@ -1,9 +1,11 @@
 # llvm-hackme
 
-An automated LLVM correctness checking service that monitors open pull
-requests to [llvm/llvm-project](https://github.com/llvm/llvm-project),
-performs fuzzing on proposed middle-end patches, and reports bugs found
-(opt crashes or Alive2 miscompilations) as PR review comments.
+A replacement for
+[llvm-mutation-based-fuzz-service](https://github.com/dtcxzyw/llvm-mutation-based-fuzz-service).
+It monitors open pull requests to
+[llvm/llvm-project](https://github.com/llvm/llvm-project), performs
+fuzzing on proposed middle-end patches, and reports bugs found (opt
+crashes or Alive2 miscompilations) as PR review comments.
 
 ## Motivation
 
