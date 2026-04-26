@@ -32,6 +32,8 @@ _SOURCE_KEYWORDS: list[tuple[str, str]] = [
     ("llvm/lib/Analysis/ValueTracking", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Analysis/ConstantFolding", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/IR/ConstantFold", "instcombine<no-verify-fixpoint>"),
+    ("llvm/lib/IR/ConstantRange", "instcombine<no-verify-fixpoint>"),
+    ("llvm/lib/IR/ConstantFPRange", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Support/KnownBits", "instcombine<no-verify-fixpoint>"),
     ("llvm/lib/Support/KnownFPClass", "instcombine<no-verify-fixpoint>"),
     (
