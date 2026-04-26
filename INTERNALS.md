@@ -7,9 +7,9 @@ main.py ──▶ HackmeTUI (Textual) ──▶ HackmeService
                │                        │
                ├─ status_callback       ├─ PullRequestScanner
                └─ RichLog               ├─ OpenAIPatchReviewer
-                                        ├─ BuildManager
-                                        ├─ FuzzRunner
-                                        └─ report_result (reporting.py)
+                                         ├─ BuildManager
+                                         ├─ FuzzRunner
+                                         └─ report_result (reporting.py)
 ```
 
 Each component is a self-contained module under `llvm_hackme/`:
@@ -34,131 +34,105 @@ Each component is a self-contained module under `llvm_hackme/`:
 
 ## PR State Machine
 
-Each PR transitions through these phases:
+A PR lives in one of these states across scan cycles:
 
 ```
-                     +-----------------+
-                     |       IDLE      |
-                     +--------+--------+
-                              |
-                          scan PR
-                              |
-                     +--------v--------+   LLM reject   +-------------------+
-                     |   IN_PROGRESS   +--------------->|  REVIEW_REJECTED  |
-                     +--------+--------+                +-------------------+
-                              |
-                         build & check
-                              |
-                     +--------v--------+
-                     |   RE-VERIFY     +----> still reproduces ----+
-                     +--------+--------+                          |
-                              | no                                |
-                              v                                   |
-                     +--------+--------+                          |
-                     |      FUZZ       |                          |
-                     +--------+--------+                          |
-                              |                                   |
-                    +---------+---------+                         |
-                    |                   |                         |
-                    v                   v                         |
-           +--------+--------+  +------+------+                   |
-           |    BUG_FOUND    |  |    PASSED   |                   |
-           +--------+--------+  +------+------+                   |
-                    |                   |                         |
-                    +---------+---------+                         |
-                              |                                   |
-                              v                                   |
-                     +--------+--------+                          |
-              +----->|      IDLE       |<-------------------------+
-              |      +-----------------+
-              |
-              +---- (next scan loop)
+                         +---------+
+                    +--->|  IDLE   |<-----------------------------+
+                    |    +----+----+                              |
+                    |         |                                   |
+                    |    scanner picks up                         |
+                    |    (head_sha or patch changed               |
+                    |     or processed_at is null)                |
+                    |         |                                   |
+                    |    +----v-----+                             |
+                    |    |PROCESSING|<--------+                   |
+                    |    +----+-----+         |                   |
+                    |         |               |                   |
+               LLM  |    +----+----+          |  new head_sha     |
+             rejects|    |         |          |  pushed (debounce |
+                    |    |  LLM    |          |  cancels task)    |
+                    v    | review  |          |                   |
+             +------+---+         |          |                   |
+             |  REVIEW   |  pass   +----------+                   |
+             | _REJECTED |         |                              |
+             +-----------+    +----v-----+                        |
+                              |  build &  |                        |
+                              |   check   |                        |
+                              +----+-----+                        |
+                                   |                              |
+                    +--------------+--------------+               |
+                    |                             |               |
+                    v                             v               |
+         +----------+----------+    +------------+----+           |
+         |  old reproducer     |    |  no old reproducer |           |
+         |  in state?          |    |  in state          |           |
+         +----------+----------+    +------------+----+           |
+                    |                             |               |
+         re-verify  |                             |  run fuzz     |
+            +-------v-------+                     v               |
+            |               |              +------+------+        |
+            | still crashes?|              |  fond crash |        |
+            |               |              |  or miscomp?|        |
+            +---+-------+---+              +---+-----+---+        |
+                |       |                      |     |            |
+            yes |       | no                   |yes  |no          |
+                |       |                      |     |            |
+                v       v                      v     v            |
+         +------+-+  +--+----+    +-------+  +-------+----+      |
+         | report  |  | fuzz  |   | report |  | mark as     |      |
+         | same bug|  +-------+   | new bug|  | PASSED      |------+
+         +---------+              +--------+  +------------+      |
+                                                                  |
+                                                                  |
+         +--------------------------------------------------------+
+         |  (next scan: if head_sha/patch changed, re-enter PROCESSING;
+         |   if head_sha/patch unchanged and processed_at is set, stay IDLE)
 ```
 
-**State stored in SQLite (`pull_state` table):**
+## State Persistence
 
-| Column             | Purpose |
-|--------------------|---------|
-| `pr_number`        | GitHub PR number (PK) |
-| `head_sha`         | Last seen PR head commit |
-| `patch_sha256`     | SHA-256 of the last fetched patch |
-| `comment_id`       | GitHub comment ID if posted |
-| `comment_url`      | URL of the posted comment |
-| `reproducer_json`  | Serialized `Reproducer` if a bug was found |
-| `processed_at`     | Timestamp when processing completed (enables resume after crash) |
-| `updated_at`       | Last update timestamp |
+**SQLite schema (`pull_state` table):**
 
-## Resume-After-Interruption
+| Column | Purpose |
+|--------|---------|
+| `pr_number` | GitHub PR number (PK) |
+| `head_sha` | Last processed PR head commit |
+| `patch_sha256` | SHA-256 of the last processed patch |
+| `comment_id` | GitHub comment ID if a bug was reported |
+| `comment_url` | URL of the posted comment |
+| `reproducer_json` | Serialized `Reproducer` (only when a bug was found) |
+| `processed_at` | UTC timestamp when processing fully completed |
+| `updated_at` | Last update timestamp |
 
-When the service restarts:
+**Scanner logic on each cycle:**
 
-1. `scan_watermark` in the `metadata` table records the most recent PR
-   `updated_at` seen by the scanner.
-2. The scanner skips a PR **only** when `head_sha`, `patch_sha256`,
-   and `processed_at` all match the stored values.
-3. If `processed_at` is `NULL`, the PR was previously seen but never
-   fully processed; the scanner picks it up again on the next cycle.
+1. Fetch open, non-draft PRs targeting `main`, updated since `scan_watermark - overlap`.
+2. For each PR, fetch changed files and skip if `is_relevant_pr_file()` returns false for all.
+3. Fetch the patch and compute `patch_sha256`.
+4. Check `pull_state`:
+   - If `head_sha == pr.head_sha` AND `patch_sha256 == computed` AND `processed_at is not null`: skip (already processed).
+   - Otherwise: record `head_sha` and `patch_sha256` in state, enqueue processing task.
 
-This means a crash during the debounce, LLM review, build, fuzz, or
-reporting phase is safe -- the PR will be re-processed on restart.
+This means after a crash, any PR whose `processed_at` is still null will be re-picked up on restart.
 
 ## Pass Guessing
 
-`passes.py` maps file paths (from `diff --git a/...` lines in the
-patch) to opt pass name pipelines.  The logic has two layers:
+`passes.py` maps file paths (from `diff --git a/...` lines in the patch) to opt pass name pipelines. The logic has two layers:
 
-1. **Test paths** (`test/Transforms/...`) -- checked first; if the
-   patch modifies a test file under a recognized transform directory,
-   the corresponding pass is used (e.g. `test/Transforms/GVN` →
-   `gvn`).
-2. **Source paths** (`lib/...`, `include/...`) -- checked second as a
-   fallback; analysis files (KnownBits, ValueTracking, etc.) always
-   map to `instcombine<no-verify-fixpoint>`.
+1. **Test paths** (`llvm/test/Transforms/<pass>/...`) — checked first; if the patch modifies a test file under a recognized transform directory, the corresponding pass is used.
+2. **Source paths** (`llvm/lib/...`, `llvm/include/...`) — checked second as a fallback; analysis files (KnownBits, ValueTracking, ConstantFolding, etc.) always map to `instcombine<no-verify-fixpoint>`.
 
-The same keyword list drives `is_relevant_pr_file`, which determines
-whether a PR is interesting enough to process at all.
+The same keyword list drives `is_relevant_pr_file()`, which determines whether a PR is interesting enough to process at all.
 
 ## IR Reproducer
 
-When a bug is confirmed, the comment body follows this structure:
+When a bug is confirmed, the comment body embeds the IR inline as a ` ```llvm ` code block, with a `; RUN: opt ...` header line derived from the failing command. No local filesystem paths are exposed in the comment.
 
-```
-The following correctness issue was found by llvm-hackme.
+The `source_content` field in `Reproducer` stores the full IR text. It is captured at fuzzer output time and propagated through verification → reporting so the comment never needs to read from disk.
 
-<!-- llvm-hackme-state: bug_found -->
-<!-- llvm-hackme-baseline: ... -->
-<!-- llvm-hackme-head-sha: ... -->
-<!-- llvm-hackme-patch-sha256: ... -->
-<!-- llvm-hackme-kind: crash -->
+## LLM Review
 
-... (boilerplate) ...
+Before any build or execution, the patch is split into chunks and each chunk is sent to an OpenAI-compatible API with a strict prompt that classifies it as `innocuous` or `malicious`. If any chunk is classified as non-innocuous, the PR is skipped entirely.
 
-## Reproducer
-
-**Kind**: crash
-
-**IR Reproducer**:
-```llvm
-; RUN: opt -passes=instcombine<no-verify-fixpoint> -S
-define i32 @foo(i32 %x) {
-  ret i32 %x
-}
-```
-
-**Stacktrace**:
-```
-SIGSEGV ...
-```
-
-**Baseline Revision**: `...`
-**PR Head SHA**: `...`
-**Patch SHA256**: `...`
-```
-
-The `IR Reproducer` block:
-- Starts with a `; RUN: opt ...` header line derived from the failing
-  command.
-- Contains the full LLVM IR source (reduced by llvm-reduce for
-  crashes, or llvm-extract'd for miscompilations).
-- Is embedded directly as inline code with ` ```llvm ` fences -- no
-  local file paths are exposed in the comment.
+This gate runs as the very first step in `_handle_pr_update()`, before the build lock is acquired.
