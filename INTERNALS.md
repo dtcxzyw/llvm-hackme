@@ -77,7 +77,25 @@ stateDiagram-v2
     PASSED --> IDLE : new head_sha
 ```
 
-## State Persistence
+## Deployment Constraints
+
+- **Single-instance only** — only one `HackmeService` process runs against a given repository at a time. There is no distributed coordination; `_pr_tasks` and the SQLite DB assume exclusive ownership. Running multiple instances concurrently against the same repository can produce duplicate GitHub comments.
+- When the service starts, it calls `_validate_environment()` synchronously before entering any async loop. This checks that `z3`, `llvm-symbolizer`, and `opencode` are on `PATH`, and that the configured `LLVM_HACKME_HACK_MODEL` is available.
+
+## Comment Dedup
+
+Each PR gets at most one llvm-hackme comment. Two layers enforce this:
+
+1. **Process-level** — `_schedule_pr_task()` ensures only one `asyncio.Task` per PR number exists at any moment (`_pr_tasks` dict). A new update for the same PR cancels the previous task before spawning the new one.
+
+2. **DB/API recovery** — `report_result()` checks both the local DB (`stored.comment_id`) and the GitHub API (`find_llvm_hackme_comment()`) before deciding whether to create or update:
+   - **Existing comment found on GitHub but `comment_id` missing from DB**: the DB row is recovered with `save_comment()`, then the comment is updated normally. No duplicate is created.
+   - **No existing comment anywhere**: a new comment is created and its ID saved to the DB.
+   - **Existing comment with matching `comment_id`**: the comment is updated in-place (new reproducer or "still reproduces" status).
+
+   The recovery path (`existing is not None` but `stored.comment_id is None`) handles DB loss/migration scenarios without creating duplicate comments.
+
+
 
 **SQLite schema (`pull_state` table):**
 
@@ -103,6 +121,14 @@ stateDiagram-v2
 
 This means after a crash, any PR whose `processed_at` is still null will be re-picked up on restart.
 
+## Build
+
+All CMake builds use `RelWithDebInfo` (not `Release`) so opt crash stacktraces include debug symbols for meaningful diagnosis.
+
+`_build_lock` (an `asyncio.Lock`) protects the LLVM baseline from concurrent mutation. It is acquired during `update_baseline()` (in `_baseline_update_loop`) and during `prepare_pr_build()` (in `_handle_pr_update`), but released immediately after the build completes — it is NOT held during fuzzing, the hack agent run, verification, or reporting. This allows baseline updates to proceed while other PRs are being tested.
+
+PR builds use a `git worktree` (`llvm-project-pr`) that is force-reset to the current baseline revision before each patch is applied.
+
 ## Pass Guessing
 
 `passes.py` maps file paths (from `diff --git a/...` lines in the patch) to opt pass name pipelines.  The logic has three layers in strict priority order:
@@ -112,6 +138,10 @@ This means after a crash, any PR whose `processed_at` is still null will be re-p
 3. **PhaseOrdering test paths** (`llvm/test/Transforms/PhaseOrdering/...`) -- lowest priority; only used when no other test or source path matches.
 
 The same keyword list drives `is_relevant_pr_file()`, which determines whether a PR is interesting enough to process at all.
+
+### `instcombine` normalisation
+
+The legacy pass manager syntax `instcombine` (bare, without `<no-verify-fixpoint>`) is automatically converted to the new PM form `instcombine<no-verify-fixpoint>` via `_fixup_instcombine()` in `service.py`. This normalisation is applied to opt arguments extracted from reproducer commands (`_opt_args_from_command`) and to arguments submitted by the hack agent (`_hack_verify`). Both single-argument and `-passes=instcombine,...` forms are handled.
 
 ## Hack Agent
 
@@ -131,7 +161,7 @@ os.mkfifo(submit.pipe)
 os.mkfifo(response.pipe)
                                        hack_context tool reads context.json
                                        LLM analyzes patch & constructs IR
-                                       hack_submit(ir, pass_name, kind, desc)
+                                        hack_submit(ir, opt_args, kind, desc)
                                           │
 read(submit.pipe)  ◄──────────────────── write(submit.pipe, payload)
                                           │
@@ -144,8 +174,18 @@ _hack_verify(payload)                    open(response.pipe) blocks
 ```
 
 1. **Context file** (`context.json`) — written by the service; contains all binary paths, the patch file path, pass name, work directories, LLVM source tree paths, and `opt_memory_limit_bytes` (for the TS-side `prlimit` wrapper). The `hack_context` tool reads it.
-2. **Submit pipe** (`submit.pipe`) — agent writes a JSON payload `{ir, pass_name, kind, description}`. The Python service reads it and runs verification (`check_crash` / `check_miscompilation` on both baseline and PR opt).
+2.  **Submit pipe** (`submit.pipe`) — agent writes a JSON payload `{ir, opt_args, kind, description}`. The Python service reads it and runs verification (`check_crash` / `check_miscompilation` on both baseline and PR opt).
 3. **Response pipe** (`response.pipe`) — Python writes `{success: true}` on confirmed regression (then kills opencode) or `{success: false, reason}` on failed verification (agent may retry).
+
+### Pipe deadlock recovery
+
+If the hack agent process exits without writing to `submit.pipe` (crash, timeout, cancellation), the Python reader thread can hang indefinitely in `open(submit_pipe)` because the FIFO has no writer. After the opencode process exits (or is killed), the service:
+
+1. Cancels the pipe listener task if still running.
+2. Force-opens each pipe with `O_NONBLOCK` (write-only for submit, read-only for response) to unblock any stuck reader/writer threads.
+3. Waits up to 30 seconds for `pipe_done` (set in `finally` by the pipe listener) before cleaning up.
+
+This guarantees the service does not hang permanently regardless of how the hack agent terminates.
 
 ### Permissions and safety
 
@@ -172,3 +212,5 @@ The `source_content` field in `Reproducer` stores the full IR text. It is captur
 Before any build or execution, the patch is split into chunks and each chunk is sent to an OpenAI-compatible API with a strict prompt that classifies it as `innocuous` or `malicious`. If any chunk is classified as non-innocuous, the PR is skipped entirely.
 
 This gate runs as the very first step in `_handle_pr_update()`, before the build lock is acquired.
+
+The response parser (`_review_chunk`) uses fuzzy word matching: it tokenizes the first line of the LLM response (stripping punctuation) and checks if `"innocuous"` appears as a standalone word. This handles common LLM deviations like `"innocuous."`, `"The patch is innocuous"`, or `"**Innocuous**"` without requiring exact string equality. Any response that does not contain the word `innocuous` in its first line is treated as a rejection.

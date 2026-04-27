@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from llvm_hackme.builds import ToolchainPaths
-from llvm_hackme.commands import CommandError, minimal_execution_env, run_command
+from llvm_hackme.commands import (
+    CommandError,
+    CommandResult,
+    is_disk_full_output,
+    minimal_execution_env,
+    run_command,
+)
 from llvm_hackme.models import BugKind, Reproducer
 
 LOGGER = logging.getLogger(__name__)
@@ -17,6 +23,16 @@ VERIFY_TIMEOUT = 120
 ALIVE2_INCORRECT_RE = re.compile(
     r"[1-9]\d* incorrect transformations?|ERROR: Value mismatch"
 )
+
+
+def _output_has_disk_full_error(
+    result: CommandResult | None = None, text: str = ""
+) -> bool:
+    if result is not None and (
+        is_disk_full_output(result.stderr) or is_disk_full_output(result.stdout)
+    ):
+        return True
+    return bool(text and is_disk_full_output(text))
 
 
 class VerificationError(RuntimeError):
@@ -59,6 +75,8 @@ async def check_crash(
     except CommandError as exc:
         result = exc.result
         if result.returncode >= 0:
+            return None
+        if _output_has_disk_full_error(result):
             return None
         stacktrace = (
             result.stderr or result.stdout or f"signal {abs(result.returncode)}"
@@ -115,6 +133,8 @@ async def check_miscompilation(
             return None
 
         stdout = alive_result.stdout
+        if _output_has_disk_full_error(text=stdout):
+            return None
         correct = (
             "0 incorrect transformations" in stdout
             and "Transformation seems to be correct" in stdout

@@ -13,6 +13,7 @@ from pathlib import Path
 from llvm_hackme.builds import ToolchainPaths
 from llvm_hackme.commands import (
     CommandError,
+    is_disk_full_output,
     minimal_execution_env,
     run_command,
 )
@@ -278,6 +279,10 @@ class FuzzRunner:
         except CommandError as exc:
             result = exc.result
             if result.returncode < 0:
+                if is_disk_full_output(result.stderr) or is_disk_full_output(
+                    result.stdout
+                ):
+                    return None
                 source_path = src_file
                 reduced = await self._reduce_crash(
                     src_file, toolchain, idx, work, pass_name
@@ -330,6 +335,8 @@ class FuzzRunner:
             and "Transformation seems to be correct" in stdout
         )
         if not correct and ALIVE2_INCORRECT_RE.search(stdout):
+            if is_disk_full_output(stdout):
+                return None
             source_path = src_file
             func_match = FUNC_RE.search(src_file.read_text())
             if func_match:

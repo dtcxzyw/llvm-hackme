@@ -8,6 +8,14 @@ architecture, state machine, and internal design.
 Agents must read and maintain `INTERNALS.md` when making structural
 changes.
 
+## Project Constraints
+
+- **Single-instance only** — only one `HackmeService` process runs against a given repository. There is no distributed coordination or multi-instance support. Do not design features that require cross-process locking, consensus, or distributed state.
+- **Single comment per PR** — `_pr_tasks` (asyncio task dict) ensures at most one active processing task per PR number. `report_result()` queries both the local DB and the GitHub API before creating a new comment, and recovers by updating an existing comment if found. No DB-based comment-creation lock is needed.
+- **Memory limit propagation** — `opt_memory_limit_bytes` must be passed from config through verification (`verify_reproducer` → `check_crash` / `check_miscompilation`) so bugs that only reproduce under memory pressure are not silently discarded as false negatives.
+- **Build type** — LLVM must be built with `RelWithDebInfo` so crash stacktraces are meaningful. `llvm-symbolizer` must be on PATH at startup.
+- **`instcombine` normalisation** — bare `instcombine` arguments (legacy PM syntax) are automatically normalised to `instcombine<no-verify-fixpoint>` everywhere opt args are parsed.
+
 ## Repository Language Rules
 
 - Write all repository content in English and reply to the user in the user's language.

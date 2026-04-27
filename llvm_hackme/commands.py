@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import resource
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -88,3 +89,18 @@ def _limit_address_space(memory_limit_bytes: int):
         resource.setrlimit(resource.RLIMIT_AS, (memory_limit_bytes, memory_limit_bytes))
 
     return apply_limit
+
+
+_DISK_FULL_RE = re.compile(
+    r"(?i)("
+    r"no space left on device|"
+    r"disk quota exceeded|"
+    r"not enough space|"
+    r"disk full|"
+    r"errno\s*28"
+    r")"
+)
+
+
+def is_disk_full_output(text: str) -> bool:
+    return bool(_DISK_FULL_RE.search(text))
