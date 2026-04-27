@@ -80,6 +80,10 @@ class Config:
         return self.work_dir / "hack"
 
     @property
+    def logs_dir(self) -> Path:
+        return self.work_dir / "logs"
+
+    @property
     def hack_context_file(self) -> Path:
         return self.hack_work_dir / "context.json"
 

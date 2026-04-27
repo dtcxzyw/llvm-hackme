@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import os
 import re
 import resource
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -25,6 +27,19 @@ class CommandError(RuntimeError):
             f" {' '.join(result.args)}"
         )
         self.result = result
+
+
+_command_log_path: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "_command_log_path", default=None
+)
+
+
+def set_command_log_path(path: Path | None) -> None:
+    _command_log_path.set(path)
+
+
+def get_command_log_path() -> Path | None:
+    return _command_log_path.get(None)
 
 
 async def run_command(
@@ -66,9 +81,30 @@ async def run_command(
         stdout=stdout_bytes.decode(errors="replace"),
         stderr=stderr_bytes.decode(errors="replace"),
     )
+    _write_command_log(normalized, result)
     if check and result.returncode != 0:
         raise CommandError(result)
     return result
+
+
+def _write_command_log(args: tuple[str, ...], result: CommandResult) -> None:
+    log_path = _command_log_path.get(None)
+    if log_path is None:
+        return
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        with open(log_path, "a") as f:
+            f.write(f"[{ts}] {' '.join(args)}\n")
+            if result.stdout:
+                f.write(result.stdout)
+                if not result.stdout.endswith("\n"):
+                    f.write("\n")
+            if result.stderr:
+                f.write(result.stderr)
+                if not result.stderr.endswith("\n"):
+                    f.write("\n")
+    except OSError:
+        pass
 
 
 def minimal_execution_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:

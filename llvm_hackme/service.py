@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from llvm_hackme.builds import BuildManager, ToolchainPaths
-from llvm_hackme.commands import is_transient_error
+from llvm_hackme.commands import is_transient_error, set_command_log_path
 from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
@@ -101,6 +101,10 @@ class HackmeService:
         pr = update.pr
         pr_number = pr.number
         transient = False
+
+        log_file = self._config.logs_dir / f"pr-{pr_number}.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
         try:
             LOGGER.info(
                 "PR #%s update queued, waiting %s debounce seconds",
@@ -113,6 +117,7 @@ class HackmeService:
                 LOGGER.info("PR #%s task cancelled during debounce", pr_number)
                 raise
 
+            set_command_log_path(log_file)
             LOGGER.info("PR #%s debounce complete, starting processing", pr_number)
             await self._emit_status(pr, "in_progress")
 
@@ -255,6 +260,7 @@ class HackmeService:
                     )
                     await self._emit_status(pr, "pending")
         finally:
+            set_command_log_path(None)
             if not transient:
                 self._state.reset_retry(pr_number)
                 self._state.mark_processed(pr_number)
@@ -439,6 +445,9 @@ class HackmeService:
     async def _baseline_update_loop(self) -> None:
         while True:
             try:
+                log_file = self._config.logs_dir / "baseline-update.log"
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                set_command_log_path(log_file)
                 async with self._build_lock:
                     revision = await self._builds.update_baseline()
                     LOGGER.info("Baseline updated to revision %s", revision)
@@ -446,6 +455,8 @@ class HackmeService:
                 raise
             except Exception:
                 LOGGER.exception("Baseline update failed")
+            finally:
+                set_command_log_path(None)
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
 
 

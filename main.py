@@ -6,6 +6,8 @@ import logging
 import shutil
 import subprocess
 import sys
+import time
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 from llvm_hackme.config import Config
@@ -25,6 +27,43 @@ def _find_opencode() -> str | None:
         if c.is_file():
             return str(c)
     return None
+
+
+_LOG_RETENTION_DAYS = 10
+_LOG_SECONDS_PER_DAY = 86400
+
+
+def _setup_logging(logs_dir: Path) -> None:
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    handler = TimedRotatingFileHandler(
+        str(logs_dir / "hackme.log"),
+        when="midnight",
+        interval=1,
+        backupCount=_LOG_RETENTION_DAYS,
+        encoding="utf-8",
+    )
+    handler.setFormatter(fmt)
+    root.addHandler(handler)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(fmt)
+    root.addHandler(stderr_handler)
+
+
+def _cleanup_old_logs(logs_dir: Path) -> None:
+    if not logs_dir.is_dir():
+        return
+    cutoff = time.time() - _LOG_RETENTION_DAYS * _LOG_SECONDS_PER_DAY
+    for entry in logs_dir.iterdir():
+        if not entry.is_file():
+            continue
+        try:
+            if entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            pass
 
 
 def _validate_environment(config: Config) -> None:
@@ -73,10 +112,8 @@ async def plain_main(
     github: GitHubClient,
     reviewer: OpenAIPatchReviewer,
 ) -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    _setup_logging(config.logs_dir)
+    _cleanup_old_logs(config.logs_dir)
     service = HackmeService(config, state, github, reviewer)
     try:
         await service.run_forever()
@@ -91,6 +128,8 @@ async def plain_main(
 
 def main() -> None:
     config, state, github, reviewer = _create_objects()
+    _setup_logging(config.logs_dir)
+    _cleanup_old_logs(config.logs_dir)
     try:
         if len(sys.argv) > 1 and sys.argv[1] in ("--plain", "-p"):
             asyncio.run(plain_main(config, state, github, reviewer))
