@@ -652,12 +652,9 @@ bool canonicalizeOp(Instruction &I) {
   return false;
 }
 bool commuteOperands(Instruction &I) {
-  if (auto *BI = dyn_cast<BranchInst>(&I)) {
-    if (BI->isConditional()) {
-      BI->swapSuccessors();
-      return true;
-    }
-    return false;
+  if (auto *BI = dyn_cast<CondBrInst>(&I)) {
+    BI->swapSuccessors();
+    return true;
   }
   if (auto *SI = dyn_cast<SelectInst>(&I)) {
     if (match(SI, m_LogicalOp(m_Value(), m_Value())))
@@ -675,6 +672,86 @@ bool commuteOperands(Instruction &I) {
     return false;
   I.getOperandUse(0).swap(I.getOperandUse(1));
   return true;
+}
+
+bool mutateArgAttr(Argument &Arg) {
+  switch (randomUInt(1)) {
+  case 0:
+    if (Arg.getType()->isPointerTy()) {
+      if (Arg.hasNonNullAttr())
+        Arg.removeAttr(Attribute::NonNull);
+      else
+        Arg.addAttr(Attribute::NonNull);
+      return true;
+    }
+    break;
+  case 1:
+    if (Arg.hasAttribute(Attribute::NoUndef))
+      Arg.removeAttr(Attribute::NoUndef);
+    else
+      Arg.addAttr(Attribute::NoUndef);
+    return true;
+  }
+  return false;
+}
+bool replaceArgUse(Instruction &I) {
+  SmallVector<Use *> Uses;
+  for (auto &Op : I.operands())
+    if (isa<Argument>(Op) && !Op->hasOneUse())
+      Uses.push_back(&Op);
+  if (Uses.empty())
+    return false;
+  auto &Op = *Uses[randomUInt(Uses.size() - 1)];
+  SmallVector<Argument *> Replacements;
+  for (auto &Arg : I.getFunction()->args())
+    if (Arg.getType() == Op->getType() && &Arg != Op.get())
+      Replacements.push_back(&Arg);
+  if (Replacements.empty())
+    return false;
+  Op->replaceAllUsesWith(Replacements[randomUInt(Replacements.size() - 1)]);
+  return true;
+}
+bool insertNodes(Instruction &I) {
+  if (I.use_empty() || I.isTerminator())
+    return false;
+  Type *Ty = I.getType();
+  if (randomBool() && (Ty->isIntOrIntVectorTy() || Ty->isPtrOrPtrVectorTy() ||
+                       Ty->isFPOrFPVectorTy())) {
+    for (auto &U : I.uses()) {
+      if (isa<PHINode>(U.getUser()) || isa<FreezeInst>(U.getUser()))
+        continue;
+      if (randomBool()) {
+        IRBuilder<> Builder(cast<Instruction>(U.getUser()));
+        U.set(Builder.CreateFreeze(&I));
+        return true;
+      }
+    }
+  }
+
+  if (Ty->isFPOrFPVectorTy()) {
+    for (auto &U : I.uses()) {
+      if (isa<PHINode>(U.getUser()))
+        continue;
+      if (randomBool()) {
+        IRBuilder<> Builder(cast<Instruction>(U.getUser()));
+        Value *V;
+        switch (randomUInt(1)) {
+        case 0:
+          V = Builder.CreateFNeg(&I);
+        case 1:
+          if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
+            auto IID = II->getIntrinsicID();
+            if (IID == Intrinsic::fabs)
+              return false;
+          }
+          V = Builder.CreateUnaryIntrinsic(Intrinsic::fabs, &I);
+        }
+        U.set(V);
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // Recipes
