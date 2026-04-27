@@ -35,29 +35,51 @@ class BuildManager:
         self.config.work_dir.mkdir(parents=True, exist_ok=True)
         await self._ensure_clone(self.config.llvm_project_dir, LLVM_REPOSITORY)
         await self._ensure_clone(self.config.alive2_dir, ALIVE2_REPOSITORY)
+
+        old_llvm = await self._rev_parse("HEAD", self.config.llvm_project_dir)
+        old_alive2 = await self._rev_parse("HEAD", self.config.alive2_dir)
+
         await run_command(
             ["git", "fetch", "--prune", "origin"], cwd=self.config.llvm_project_dir
         )
         await run_command(
-            ["git", "checkout", "origin/main"], cwd=self.config.llvm_project_dir
-        )
-        await run_command(
-            ["git", "reset", "--hard", "origin/main"], cwd=self.config.llvm_project_dir
-        )
-        await run_command(
             ["git", "fetch", "--prune", "origin"], cwd=self.config.alive2_dir
         )
-        await run_command(
-            ["git", "checkout", "origin/master"], cwd=self.config.alive2_dir
-        )
-        await run_command(
-            ["git", "reset", "--hard", "origin/master"], cwd=self.config.alive2_dir
-        )
-        revision = await self.current_baseline_revision()
+
+        await self._checkout_rev("origin/main", self.config.llvm_project_dir)
+        await self._checkout_rev("origin/master", self.config.alive2_dir)
+
+        try:
+            await self._configure_and_build_baseline()
+            await self._configure_and_build_alive2()
+            await self._configure_and_build_fuzz_tools()
+        except Exception:
+            LOGGER.exception(
+                "Baseline update failed, rolling back %s → %s and %s → %s",
+                self.config.llvm_project_dir,
+                old_llvm,
+                self.config.alive2_dir,
+                old_alive2,
+            )
+            await self._rollback(old_llvm, old_alive2)
+            raise
+
+        return await self.current_baseline_revision()
+
+    async def _rev_parse(self, ref: str, work_dir: Path) -> str:
+        result = await run_command(["git", "rev-parse", ref], cwd=work_dir)
+        return result.stdout.strip()
+
+    async def _checkout_rev(self, rev: str, work_dir: Path) -> None:
+        await run_command(["git", "checkout", rev], cwd=work_dir)
+        await run_command(["git", "reset", "--hard", rev], cwd=work_dir)
+
+    async def _rollback(self, llvm_rev: str, alive2_rev: str) -> None:
+        await self._checkout_rev(llvm_rev, self.config.llvm_project_dir)
+        await self._checkout_rev(alive2_rev, self.config.alive2_dir)
         await self._configure_and_build_baseline()
         await self._configure_and_build_alive2()
         await self._configure_and_build_fuzz_tools()
-        return revision
 
     async def prepare_pr_build(self, patch: str, head_sha: str) -> ToolchainPaths:
         baseline_revision = await self.current_baseline_revision()
