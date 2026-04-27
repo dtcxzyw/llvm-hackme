@@ -155,9 +155,7 @@ class FuzzRunner:
             if not _is_safe_subpath(file):
                 LOGGER.warning("Rejecting unsafe seed path: %s", file)
                 continue
-            src = Path(toolchain.llvm_extract).parent.parent.joinpath(
-                "llvm-project-pr", file
-            )
+            src = self._config.llvm_project_pr_dir / file
             if not src.exists():
                 LOGGER.warning("Seed source file not found: %s", src)
                 continue

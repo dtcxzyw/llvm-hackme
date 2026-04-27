@@ -86,47 +86,53 @@ class HackmeService:
                 "Cancelled existing task for PR #%s (new update arrived)", pr_number
             )
 
-        self._pr_tasks[pr_number] = asyncio.create_task(self._handle_pr_update(update))
+        async def _wrapped() -> None:
+            try:
+                await self._handle_pr_update(update)
+            finally:
+                self._pr_tasks.pop(pr_number, None)
+
+        self._pr_tasks[pr_number] = asyncio.create_task(_wrapped())
 
     async def _handle_pr_update(self, update: PullRequestUpdate) -> None:
         pr = update.pr
         pr_number = pr.number
-        LOGGER.info(
-            "PR #%s update queued, waiting %s debounce seconds",
-            pr_number,
-            self._config.debounce_seconds,
-        )
         try:
-            await asyncio.sleep(self._config.debounce_seconds)
-        except asyncio.CancelledError:
-            LOGGER.info("PR #%s task cancelled during debounce", pr_number)
-            raise
-
-        LOGGER.info("PR #%s debounce complete, starting processing", pr_number)
-        await self._emit_status(pr, "in_progress")
-
-        review = await self._reviewer.review(update.patch)
-        if not review.accepted:
-            LOGGER.info("OpenAI review rejected PR #%s: %s", pr_number, review.reason)
-            await self._emit_status(pr, "review_rejected")
-            self._state.mark_processed(pr_number)
-            return
-
-        pass_name = guess_pass_name(update.patch)
-        if pass_name is None:
-            LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
-            self._state.mark_processed(pr_number)
-            return
-
-        async with self._build_lock:
+            LOGGER.info(
+                "PR #%s update queued, waiting %s debounce seconds",
+                pr_number,
+                self._config.debounce_seconds,
+            )
             try:
-                toolchain, tests_applied = await self._builds.prepare_pr_build(
-                    update.patch, pr.head_sha
+                await asyncio.sleep(self._config.debounce_seconds)
+            except asyncio.CancelledError:
+                LOGGER.info("PR #%s task cancelled during debounce", pr_number)
+                raise
+
+            LOGGER.info("PR #%s debounce complete, starting processing", pr_number)
+            await self._emit_status(pr, "in_progress")
+
+            review = await self._reviewer.review(update.patch)
+            if not review.accepted:
+                LOGGER.info(
+                    "OpenAI review rejected PR #%s: %s", pr_number, review.reason
                 )
-            except Exception:
-                LOGGER.exception("Failed to build PR #%s", pr_number)
-                self._state.mark_processed(pr_number)
+                await self._emit_status(pr, "review_rejected")
                 return
+
+            pass_name = guess_pass_name(update.patch)
+            if pass_name is None:
+                LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
+                return
+
+            async with self._build_lock:
+                try:
+                    toolchain, tests_applied = await self._builds.prepare_pr_build(
+                        update.patch, pr.head_sha
+                    )
+                except Exception:
+                    LOGGER.exception("Failed to build PR #%s", pr_number)
+                    return
 
             stored = self._state.get_pull_state(pr_number)
             if stored.reproducer is not None:
@@ -154,7 +160,6 @@ class HackmeService:
                         toolchain.baseline_revision,
                         self._service_login,
                     )
-                    self._state.mark_processed(pr_number)
                     return
                 LOGGER.info(
                     "PR #%s: existing reproducer no longer reproduces,"
@@ -200,22 +205,27 @@ class HackmeService:
 
             baseline_revision = toolchain.baseline_revision
 
-        if verified is not None:
-            await self._emit_status(pr, "bug_found")
-        else:
-            await self._emit_status(pr, "passed")
+            if verified is not None:
+                await self._emit_status(pr, "bug_found")
+            else:
+                await self._emit_status(pr, "passed")
 
-        await report_result(
-            self._github,
-            self._state,
-            update,
-            verified,
-            baseline_revision,
-            self._service_login,
-        )
+            await report_result(
+                self._github,
+                self._state,
+                update,
+                verified,
+                baseline_revision,
+                self._service_login,
+            )
 
-        LOGGER.info("PR #%s processing complete", pr_number)
-        self._state.mark_processed(pr_number)
+            LOGGER.info("PR #%s processing complete", pr_number)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception("Unhandled error processing PR #%s", pr_number)
+        finally:
+            self._state.mark_processed(pr_number)
 
     async def _run_hack_agent(
         self,
@@ -250,12 +260,9 @@ class HackmeService:
         submit_pipe = hack_dir / "submit.pipe"
         response_pipe = hack_dir / "response.pipe"
 
-        if submit_pipe.exists():
-            submit_pipe.unlink()
-        if response_pipe.exists():
-            response_pipe.unlink()
-        os.mkfifo(str(submit_pipe))
-        os.mkfifo(str(response_pipe))
+        for p in (submit_pipe, response_pipe):
+            p.unlink(missing_ok=True)
+            os.mkfifo(str(p))
 
         opencode_bin = _find_opencode()
         if opencode_bin is None:
@@ -267,7 +274,7 @@ class HackmeService:
             "You are the hack agent.  Use the `hack_context` tool first to get "
             "all paths and configuration, then analyze the patch diff file to find "
             "a crash or miscompilation regression.  When you find one, call "
-            "`hack_submit` with the IR, pass_name, kind, and description.  "
+            "`hack_submit` with the IR, opt_args, kind, and description.  "
             "Work quickly and submit as soon as you have a credible candidate."
         )
 
@@ -314,7 +321,6 @@ class HackmeService:
 
                 raw = await asyncio.to_thread(_read_pipe)
                 if not raw:
-                    pipe_done.set()
                     return
                 payload = json.loads(raw)
                 hack_reproducer = await _hack_verify(
@@ -341,9 +347,9 @@ class HackmeService:
                 if response.get("success"):
                     with contextlib.suppress(ProcessLookupError):
                         proc.kill()
-                pipe_done.set()
             except Exception:
                 LOGGER.exception("Hack pipe listener failed")
+            finally:
                 pipe_done.set()
 
         pipe_task = asyncio.create_task(pipe_listener())
@@ -366,7 +372,17 @@ class HackmeService:
         finally:
             if not pipe_task.done():
                 pipe_task.cancel()
-            await pipe_done.wait()
+                for pipe, mode in [
+                    (submit_pipe, os.O_WRONLY),
+                    (response_pipe, os.O_RDONLY),
+                ]:
+                    with contextlib.suppress(OSError):
+                        fd = os.open(str(pipe), mode | os.O_NONBLOCK)
+                        os.close(fd)
+            try:
+                await asyncio.wait_for(pipe_done.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                LOGGER.warning("Timed out waiting for hack pipe to close")
             self._cleanup_pipes(submit_pipe, response_pipe)
             opencode_log.close()
 

@@ -277,7 +277,7 @@ feature.
 
 ```
 ir          — full LLVM IR text of the reproducer, not a file path
-pass_name   — opt pipeline string, e.g. "instcombine<no-verify-fixpoint>"
+opt_args    — opt pipeline string, e.g. "-passes=instcombine<no-verify-fixpoint>"
 kind        — "crash" or "miscompilation"
 description — one-line summary of the bug, e.g. "InstCombine folds
               icmp ult (shl X, C), 0 when shl wraps"
