@@ -64,7 +64,7 @@ export OPENAI_AUTH_KEY=sk-...
 export OPENAI_MODEL=gpt-4o-mini
 
 # 2. Install dependencies
-pip install -e .
+uv sync
 
 # 3. Run (TUI mode by default)
 python main.py

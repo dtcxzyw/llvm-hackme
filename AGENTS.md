@@ -18,6 +18,12 @@ changes.
 - **Build type** — LLVM must be built with `RelWithDebInfo` so crash stacktraces are meaningful. `llvm-symbolizer` must be on PATH at startup.
 - **`instcombine` normalisation** — bare `instcombine` arguments (legacy PM syntax) are automatically normalised to `instcombine<no-verify-fixpoint>` everywhere opt args are parsed.
 
+## Development Environment
+
+- **Python dependency management** — use `uv` (see `uv.lock`). Run `uv sync` to install all dependencies (including dev). Run `uv pip install -e .` to install the package itself in editable mode. The virtualenv lives at `.venv/`.
+- **Testing** — `uv run pytest tests/` or `.venv/bin/python -m pytest tests/`. Test config is in `pyproject.toml` under `[tool.pytest.ini_options]`.
+- **Linting** — `uv run ruff check .`
+
 ## Repository Language Rules
 
 - Write all repository content in English and reply to the user in the user's language.
