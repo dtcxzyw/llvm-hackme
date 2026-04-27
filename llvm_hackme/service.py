@@ -505,7 +505,11 @@ async def _hack_verify(
     *,
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
-    from llvm_hackme.verification import check_crash, check_miscompilation
+    from llvm_hackme.verification import (
+        check_crash,
+        check_miscompilation,
+        is_alive2_approximation,
+    )
 
     ir_text = payload.get("ir", "")
     opt_args_str = payload.get("opt_args", "")
@@ -582,7 +586,7 @@ async def _hack_verify(
             opt_args,
             memory_limit_bytes=memory_limit_bytes,
         )
-        if pr_result is None:
+        if pr_result is None or is_alive2_approximation(pr_result):
             return None
         return Reproducer(
             kind=BugKind.MISCOMPILATION,

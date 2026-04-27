@@ -147,8 +147,6 @@ async def check_miscompilation(
             and "Transformation seems to be correct" in stdout
         )
         if not correct and ALIVE2_INCORRECT_RE.search(stdout):
-            if "Alive2 approximated the semantics of the programs" in stdout:
-                return None  # approximation — not a confirmed miscompilation
             return MiscompilationInfo(alive2_output=stdout)
         return None
     finally:
@@ -172,6 +170,12 @@ def _validate_ir_forbidden_flags(ir_source: Path) -> str | None:
             " — only nnan/ninf allowed"
         )
     return None
+
+
+def is_alive2_approximation(info: MiscompilationInfo | None) -> bool:
+    if info is None:
+        return False
+    return "Alive2 approximated the semantics of the programs" in info.alive2_output
 
 
 async def verify_reproducer(
@@ -279,9 +283,13 @@ async def _verify_regression_miscompilation(
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
     )
-    if pr_mis is None:
-        LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
-        return None
+    if pr_mis is None or is_alive2_approximation(pr_mis):
+        if pr_mis is not None:
+            LOGGER.warning(
+                "Alive2 approximation on %s — not a confirmed miscompilation", src
+            )
+        else:
+            LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
 
     LOGGER.info("Verified miscompilation reproducer: %s", src)
     return Reproducer(
