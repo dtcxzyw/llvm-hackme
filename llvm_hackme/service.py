@@ -12,7 +12,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from llvm_hackme.builds import BuildManager, ToolchainPaths
-from llvm_hackme.commands import find_opencode, is_transient_error, set_command_log_path
+from llvm_hackme.commands import (
+    CommandError,
+    append_command_log_message,
+    find_opencode,
+    is_transient_error,
+    set_command_log_path,
+)
 from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
@@ -27,6 +33,21 @@ from llvm_hackme.verification import verify_reproducer
 LOGGER = logging.getLogger(__name__)
 
 StatusCallback = Callable[[int, str, str, str], Awaitable[None]]
+
+
+def _log_command_error(exc: BaseException, context: str) -> None:
+    if isinstance(exc, CommandError):
+        stderr = exc.result.stderr.strip()
+        stdout = exc.result.stdout.strip()
+        LOGGER.error(
+            "%s — command stderr:\n%s\nstdout:\n%s",
+            context,
+            stderr[-4000:] if stderr else "(none)",
+            stdout[-2000:] if stdout else "(none)",
+        )
+        append_command_log_message(
+            f"--- {context} — FAILED (exit {exc.result.returncode}) ---"
+        )
 
 
 class HackmeService:
@@ -147,6 +168,9 @@ class HackmeService:
                         update.patch, pr.head_sha
                     )
                 except Exception:
+                    _log_command_error(
+                        sys.exc_info()[1], f"Failed to prepare PR worktree #{pr_number}"
+                    )
                     LOGGER.exception("Failed to prepare PR worktree #%s", pr_number)
                     transient = True
                     await self._maybe_backoff(pr_number, pr)
@@ -155,6 +179,9 @@ class HackmeService:
                 try:
                     await self._builds.build_pr_opt()
                 except Exception:
+                    _log_command_error(
+                        sys.exc_info()[1], f"Failed to build PR opt #{pr_number}"
+                    )
                     LOGGER.exception("Failed to build PR opt #%s", pr_number)
                     transient = True
                     await self._maybe_backoff(pr_number, pr)
@@ -467,6 +494,7 @@ class HackmeService:
                 try:
                     await self._builds.build_baseline_toolchain()
                 except Exception:
+                    _log_command_error(sys.exc_info()[1], "Baseline build failed")
                     LOGGER.exception(
                         "Baseline build failed, rolling back %s → %s and %s → %s",
                         self._config.llvm_project_dir,
