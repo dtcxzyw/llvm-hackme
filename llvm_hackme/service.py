@@ -89,13 +89,14 @@ class HackmeService:
                 "Cancelled existing task for PR #%s (new update arrived)", pr_number
             )
 
-        async def _wrapped() -> None:
-            try:
-                await self._handle_pr_update(update)
-            finally:
+        task = asyncio.create_task(self._handle_pr_update(update))
+        self._pr_tasks[pr_number] = task
+
+        def _done_callback(t: asyncio.Task[object]) -> None:
+            if self._pr_tasks.get(pr_number) is t:
                 self._pr_tasks.pop(pr_number, None)
 
-        self._pr_tasks[pr_number] = asyncio.create_task(_wrapped())
+        task.add_done_callback(_done_callback)
 
     async def _handle_pr_update(self, update: PullRequestUpdate) -> None:
         pr = update.pr
@@ -134,6 +135,7 @@ class HackmeService:
             pass_name = guess_pass_name(update.patch)
             if pass_name is None:
                 LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
+                await self._emit_status(pr, "passed")
                 return
 
             async with self._build_lock:
