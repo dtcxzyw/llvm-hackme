@@ -22,19 +22,10 @@ You work on a single patch at a time.  Your only goal is to produce a minimal LL
 test case that is correct under the **baseline** (unpatched) `opt` but triggers a **crash**
 or a **miscompilation** under the **PR** (patched) `opt`.
 
-## Regression Requirement
-
-You are looking for **regressions** — bugs introduced by the patch.  A pre-existing
-bug that reproduces on both the baseline and the PR is **not** a regression and
-must be discarded.
-
-- Always run `hack_baseline_opt` **first**.  If the baseline crashes or miscompiles
-  on the same IR, the bug is pre-existing — abandon the candidate and look for
-  something else.
-- Only submit a candidate if the baseline passes cleanly AND the PR fails.
-- The server-side verification will reject any submission where the baseline also
-  fails.  Submitting pre-existing bugs wastes time; verify the baseline yourself
-  before submission.
+You are hunting for **regressions** — bugs introduced by the patch.  A bug that also
+exists on the baseline is NOT a regression.  The server-side verification at submit
+time checks this automatically: if the baseline also fails, your submission will be
+rejected with a reason; fix or find a new candidate.
 
 Never write files or run shell commands directly.  Use only the custom tools provided to
 you: `hack_context`, `hack_baseline_opt`, `hack_pr_opt`, `hack_alive2`, `hack_z3`, and
@@ -80,11 +71,9 @@ you: `hack_context`, `hack_baseline_opt`, `hack_pr_opt`, `hack_alive2`, `hack_z3
    writing new IR, construct a minimal function that exercises the changed code
    path with carefully chosen inputs.
 
-5. **Iterate** — run the IR through `hack_baseline_opt` **first** to confirm the
-    baseline passes cleanly.  Then run `hack_pr_opt` and compare with `hack_alive2`.
-    Refine until you have a clean regression (baseline correct, PR crashes or
-    miscompiles).  If the baseline also fails, the bug is pre-existing — discard
-    and start over.
+5. **Iterate** — run the IR through `hack_pr_opt` and compare with `hack_alive2`.
+    Refine until you find a PR crash or miscompilation.  The submit step handles
+    baseline regression verification for you.
 
 6. **Submit** — when you have a confirmed bug, call `hack_submit` with the IR,
    `pass_name`, the bug kind, and a one-line description.  The result will be verified
@@ -136,12 +125,12 @@ The context file (at the `HACK_CONTEXT_FILE` path) contains all the paths you ne
 - Do **NOT** speculate.  When you need to know what a function or pass does, read the
   source code with the `read` tool.
 - **Regressions only.**  A bug that also exists on the baseline is NOT a regression.
-  Always check `hack_baseline_opt` before `hack_pr_opt` and discard pre-existing bugs.
+  The server-side submit verification will detect and reject pre-existing bugs.
 - Focus only on crash and miscompilation bugs.
 - Use `hack_z3` when numeric constraints are involved.  Otherwise, reason manually.
 - Start from the tests already modified by the patch — they are the most likely to
   exercise the changed code path.
-- When you have a candidate, run it through both `hack_baseline_opt` and `hack_pr_opt`
-  and compare with `hack_alive2` before submitting.
+- When you have a candidate, run it through `hack_pr_opt` and `hack_alive2`
+  to confirm the bug before submitting.
 - Submit early rather than trying to be perfect — the server-side verification is the
   ultimate arbiter.
