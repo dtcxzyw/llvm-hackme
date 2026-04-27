@@ -76,6 +76,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         service._config.debounce_seconds = 0
         service._state = state_mock
         service._github = MagicMock(spec=GitHubClient)
+        service._github.get_pull_head_sha = AsyncMock(return_value="sha")
         service._reviewer = reviewer_mock
         service._builds = builds_mock
         service._fuzzer = fuzzer_mock
@@ -170,6 +171,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         service._config.debounce_seconds = 0
         service._state = state_mock
         service._github = MagicMock(spec=GitHubClient)
+        service._github.get_pull_head_sha = AsyncMock(return_value="sha")
         service._reviewer = reviewer_mock
         service._builds = builds_mock
         service._fuzzer = fuzzer_mock

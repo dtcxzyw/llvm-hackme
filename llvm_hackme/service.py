@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -119,6 +120,42 @@ class HackmeService:
 
         task.add_done_callback(_done_callback)
 
+    async def _check_pr_stale(
+        self, pr_number: int, processed_sha: str, update: PullRequestUpdate
+    ) -> bool:
+        try:
+            current_sha = await self._github.get_pull_head_sha(pr_number)
+        except Exception:
+            LOGGER.exception("Failed to re-fetch PR #%s head SHA", pr_number)
+            return False
+        if current_sha == processed_sha:
+            return False
+        LOGGER.info(
+            "PR #%s head SHA changed during processing (%s → %s), re-queuing",
+            pr_number,
+            processed_sha[:8],
+            current_sha[:8],
+        )
+        try:
+            patch = await self._github.get_pull_patch(pr_number)
+        except Exception:
+            LOGGER.exception("Failed to fetch updated patch for PR #%s", pr_number)
+            return False
+        patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
+        new_pr = PullRequest(
+            number=update.pr.number,
+            title=update.pr.title,
+            author_login=update.pr.author_login,
+            head_sha=current_sha,
+            updated_at=datetime.now(timezone.utc),
+            html_url=update.pr.html_url,
+        )
+        new_update = PullRequestUpdate(
+            pr=new_pr, patch=patch, patch_sha256=patch_sha256
+        )
+        self._schedule_pr_task(new_update)
+        return True
+
     async def _handle_pr_update(self, update: PullRequestUpdate) -> None:
         pr = update.pr
         pr_number = pr.number
@@ -130,19 +167,8 @@ class HackmeService:
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            LOGGER.info(
-                "PR #%s update queued, waiting %s debounce seconds",
-                pr_number,
-                self._config.debounce_seconds,
-            )
-            try:
-                await asyncio.sleep(self._config.debounce_seconds)
-            except asyncio.CancelledError:
-                LOGGER.info("PR #%s task cancelled during debounce", pr_number)
-                raise
-
             set_command_log_path(log_file)
-            LOGGER.info("PR #%s debounce complete, starting processing", pr_number)
+            LOGGER.info("PR #%s processing started", pr_number)
             await self._emit_status(pr, "in_progress")
 
             review = await self._reviewer.review(update.patch)
@@ -211,6 +237,8 @@ class HackmeService:
                         )
                         await self._emit_status(pr, "bug_found")
                         self._state.save_reproducer(pr_number, verified_existing)
+                        if await self._check_pr_stale(pr_number, pr.head_sha, update):
+                            return
                         await report_result(
                             self._github,
                             self._state,
@@ -258,14 +286,15 @@ class HackmeService:
             else:
                 await self._emit_status(pr, "passed")
 
-            await report_result(
-                self._github,
-                self._state,
-                update,
-                verified,
-                toolchain.baseline_revision,
-                self._service_login,
-            )
+            if not (await self._check_pr_stale(pr_number, pr.head_sha, update)):
+                await report_result(
+                    self._github,
+                    self._state,
+                    update,
+                    verified,
+                    toolchain.baseline_revision,
+                    self._service_login,
+                )
 
             LOGGER.info("PR #%s processing complete", pr_number)
         except asyncio.CancelledError:
