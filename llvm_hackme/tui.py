@@ -37,17 +37,16 @@ class PREntry:
 class HackmeTUI(App[None]):
     CSS = """
     Screen {
+        layout: vertical;
     }
 
     #status-header {
-        dock: top;
         height: 1;
         content-align: center middle;
         background: $surface;
     }
 
     #pr-panel {
-        dock: top;
         height: 12;
     }
 
