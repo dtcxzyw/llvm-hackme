@@ -9,9 +9,9 @@ export default tool({
     ir: tool.schema
       .string()
       .describe("Full LLVM IR text of the reproducer"),
-    pass_name: tool.schema
+    opt_args: tool.schema
       .string()
-      .describe("opt pass pipeline, e.g. instcombine<no-verify-fixpoint>"),
+      .describe("Space-separated opt arguments that trigger the bug, e.g. '-passes=instcombine<no-verify-fixpoint>'"),
     kind: tool.schema
       .string()
       .describe('Bug kind: "crash" or "miscompilation"'),
@@ -33,7 +33,7 @@ export default tool({
 
     const payload = JSON.stringify({
       ir: args.ir,
-      pass_name: args.pass_name,
+      opt_args: args.opt_args,
       kind: args.kind,
       description: args.description,
     })

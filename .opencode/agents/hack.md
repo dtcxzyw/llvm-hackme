@@ -57,7 +57,8 @@ an acceptable outcome.  Do NOT run to the timeout doing busy-work.
 Call `hack_context` first.  It returns a JSON object with these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
-- `pass_name` — **hint** for the opt pipeline (see below)
+- `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
+- `suggested_opt_args` — space-separated opt arguments to start with, e.g. `-passes=instcombine<no-verify-fixpoint>`
 - `work_dir` — scratch directory for temporary files; `ir_path` arguments to opt
   and alive2 tools are resolved relative to this directory
 - `baseline_opt` — path to the baseline (unpatched) `opt` binary
@@ -73,7 +74,8 @@ All tool arguments that accept file paths (`ir_path`, `baseline_ir_path`,
 `pr_ir_path`) take **paths relative to `work_dir`**.  Write your `.ll` files
 into `work_dir` (via the built-in `write` tool) and pass the relative filename.
 
-**`hack_pr_opt(ir_path, pass_name)`** — runs the PR `opt` on `ir_path`.
+**`hack_pr_opt(ir_path, opt_args)`** — runs the PR `opt` on `ir_path`.
+`opt_args` is a space-separated string of opt flags, e.g. `-passes=instcombine`.
 Returns JSON:
 ```
 {exit_code, signal, crashed, stdout, stderr}
@@ -81,16 +83,18 @@ Returns JSON:
 - `crashed: true` means `exit_code != 0` (crash, assertion failure, or OOM kill).
 - `stdout`/`stderr` are truncated to the last 8000 characters.
 
-**`hack_baseline_opt(ir_path, pass_name)`** — same as above but uses baseline `opt`.
+**`hack_baseline_opt(ir_path, opt_args)`** — same as above but uses baseline `opt`.
 You *may* use this to sanity-check your IR, but the server-side submit verification
 already performs baseline regression checking.  Do not rely on it to confirm a
 regression; submit and let the server decide.
 
-**`hack_alive2(baseline_ir_path, pr_ir_path)`** — runs alive2 to compare two
-optimized IR files.  Returns JSON:
+**`hack_alive2(ir_path, opt_args)`** — runs baseline opt, PR opt, and alive2 on
+one IR file.  Internally compiles with both opts and compares the results.
+Returns JSON:
 ```
 {exit_code, correct, miscompile, counterexample}
 ```
+If either opt crashes, returns `baseline_crashed` or `pr_crashed` with stderr.
 - `correct: true` — transformation is correct (no bug).
 - `miscompile: true` — alive2 found a miscompilation; `counterexample` has details.
 - Neither true — alive2 could not determine correctness (timeout, unsupported IR).
@@ -102,15 +106,19 @@ Takes a raw SMT-LIB2 string.  Returns JSON:
 ```
 Use `sat` to get a counterexample model from the `output` field.
 
-## pass_name
+## opt_args
 
-The `pass_name` field in the context is a **hint** (guessed from the patch file
-paths, e.g. `instcombine<no-verify-fixpoint>`).  You are free to use a different
-pipeline if you believe it better triggers the changed code — try different passes,
-combine them, or run a higher-level pipeline like `default<O3>`.
+All opt/alive2 tools accept an `opt_args` parameter — a space-separated string
+of arguments to pass to `opt`.  You control exactly what flags are used, e.g.:
 
-Whatever `pass_name` you pass to `hack_submit` is the pipeline that will be used
-for server-side verification AND the final bug report.  Choose carefully.
+- `-passes=instcombine<no-verify-fixpoint>` — run instcombine only
+- `-passes=default<O3>` — run the O3 pipeline
+- `-passes=instcombine -debug` — run instcombine with debug output
+
+The `suggested_opt_args` field in the context is a starting hint.  You are free
+to use different or additional flags.  Whatever `opt_args` you pass to
+`hack_submit` is what will be used for server-side verification AND the final
+bug report.  Choose carefully.
 
 ## Workflow
 
@@ -137,6 +145,7 @@ auto *I = cast<Instruction>(V);
 if (auto *I = dyn_cast<Instruction>(V)) {
 // post-condition: isa<Instruction>(V) — guaranteed by dyn_cast
 }
+```
 
 **Bit-width assumptions — precondition from APInt semantics:**
 
@@ -172,12 +181,12 @@ code path.
 When a precondition involves numeric constraints (bit-widths, ranges, overflow),
 formulate a SMT-LIB2 query and use `hack_z3` to search for violating inputs.
 
-Example — checking if `(X + Y)` overflows given `X, Y` are `3`-bit signed:
+Example — checking if `(X + Y)` overflows for `4`-bit signed integers (range `[-8, 7]`):
 
 ```smt2
-(declare-const X (_ BitVec 3))
-(declare-const Y (_ BitVec 3))
-(assert (not (bvult (bvadd X Y) #b100)))
+(declare-const X (_ BitVec 4))
+(declare-const Y (_ BitVec 4))
+(assert (not (bvslt (bvadd X Y) (bvsrem (bvadd X Y) (_ bv16 4)))))
 (check-sat)
 (get-model)
 ```
@@ -191,17 +200,18 @@ add/remove metadata or poison-generating flags.
 
 ### 5. Test the candidate
 
-Run `hack_pr_opt` (and optionally `hack_alive2`) to confirm the bug before submitting.
+Run `hack_pr_opt(ir_path, opt_args)` (and optionally `hack_alive2(ir_path, opt_args)`)
+to confirm the bug before submitting.
 
 ### 6. Submit
 
-Call `hack_submit(ir, pass_name, kind, description)`.  If the server rejects your
+Call `hack_submit(ir, opt_args, kind, description)`.  If the server rejects your
 submission, read the rejection reason carefully:
 
 - **"baseline also crashes/miscompiles"** — the bug is pre-existing, not a regression.
   Find a different candidate.
 - **"PR opt did not crash/miscompile"** — your IR does not trigger the bug.
-  Refine the test case or try a different pass_name.
+  Refine the test case or try different `opt_args`.
 - Other reasons — fix the IR or description as indicated and resubmit.
 
 ## Crash Heuristics
@@ -282,8 +292,8 @@ for the report; do NOT include a `RUN:` line in your submission.
 - Do **NOT** speculate.  Read the actual source code to confirm every assumption.
 - **Regressions only.**  A bug that also exists on the baseline is NOT a regression.
   The server-side submit verification will detect and reject pre-existing bugs.
-- **pass_name is your choice.**  The context hint is a starting point.  You control
-  what pipeline is used for verification and reporting.
+- **opt_args is your choice.**  The context hint is a starting point.  You control
+  what flags are used for verification and reporting.
 - **Tool timeout = abandon.**  Never retry the same inputs after a timeout.
 - **Don't run out the clock.**  If the patch looks clean or you've exhausted your
   theories, stop and report no bug.
@@ -293,7 +303,7 @@ for the report; do NOT include a `RUN:` line in your submission.
 
 ## Example
 
-A minimal crash reproducer for an InstCombine regression:
+A minimal **miscompilation** reproducer (InstCombine folds incorrectly):
 
 ```
 ir:
@@ -303,24 +313,32 @@ define i32 @f(i32 %x) {
   ret i32 %cmp
 }
 
-pass_name: instcombine<no-verify-fixpoint>
-kind: crash
-description: InstCombine folds icmp ult (shl X, C), 0 to true, but shl may wrap
+opt_args: -passes=instcombine<no-verify-fixpoint>
+kind: miscompilation
+description: InstCombine folds icmp ult (shl X, C), 0 to true, but shl wraps without nsw
 ```
 
-A minimal miscompilation reproducer:
+A minimal **crash** reproducer (assertion in dominance check):
 
 ```
 ir:
-define i1 @g(float %x) {
-  %fcmp = fcmp ninf olt float %x, 0.0
-  %neg = fneg float %x
-  %fcmp2 = fcmp ninf ogt float %neg, 0.0
-  %r = and i1 %fcmp, %fcmp2
-  ret i1 %r
+define i32 @h(i32 %x) {
+entry:
+  br label %body
+body:
+  %v = add i32 %x, 1
+  %u = phi i32 [ %v, %body ]
+  br label %body
 }
 
-pass_name: instcombine<no-verify-fixpoint>
-kind: miscompilation
-description: InstCombine drops ninf flag when folding fneg+fcmp pair
+opt_args: -passes=instcombine<no-verify-fixpoint>
+kind: crash
+description: InstCombine crashes on phi node with non-dominating incoming value
+```
+
+Include `target datalayout` and `target triple` when needed:
+
+```
+target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+target triple = "x86_64-unknown-linux-gnu"
 ```

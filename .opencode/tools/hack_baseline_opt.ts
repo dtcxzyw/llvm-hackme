@@ -8,13 +8,14 @@ export default tool({
     ir_path: tool.schema
       .string()
       .describe("Relative path to the .ll file inside the hack work directory"),
-    pass_name: tool.schema
+    opt_args: tool.schema
       .string()
-      .describe("opt pass pipeline, e.g. instcombine<no-verify-fixpoint>"),
+      .describe("Space-separated opt arguments, e.g. '-passes=instcombine<no-verify-fixpoint>'"),
   },
   async execute(args) {
     const ctx = loadContext()
     const resolved = resolveConfined(args.ir_path, ctx.work_dir)
+    const extra = parseArgs(args.opt_args)
 
     const cmd: string[] = []
     if (ctx.opt_memory_limit_bytes) {
@@ -23,7 +24,7 @@ export default tool({
         cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
       }
     }
-    cmd.push(ctx.baseline_opt, "-S", "-o", "/dev/null", resolved, `-passes=${args.pass_name}`)
+    cmd.push(ctx.baseline_opt, "-S", "-o", "/dev/null", resolved, ...extra)
 
     const proc = Bun.spawnSync({
       cmd,
@@ -58,6 +59,11 @@ function resolveConfined(rel: string, base: string): string {
     throw new Error(`Path "${rel}" escapes work directory`)
   }
   return resolved
+}
+
+function parseArgs(raw: string): string[] {
+  if (!raw || !raw.trim()) return []
+  return raw.trim().split(/\s+/)
 }
 
 function minimalEnv() {

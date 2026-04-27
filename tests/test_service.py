@@ -28,7 +28,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
     stored_reproducer = Reproducer(
         kind=BugKind.CRASH,
         source_path=MagicMock(),
-        command=["opt", "test.ll"],
+        command=["opt", "-S", "-o", "/dev/null", "test.ll", "-passes=instcombine"],
         baseline_revision="oldrev",
         pr_head_sha="oldsha",
         patch_sha256="oldpatch",
@@ -86,7 +86,9 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
 
         await service._handle_pr_update(update)
 
-        mock_verify.assert_called_once_with(stored_reproducer, toolchain, "instcombine")
+        mock_verify.assert_called_once_with(
+            stored_reproducer, toolchain, ["-passes=instcombine"]
+        )
         mock_report.assert_called_once_with(
             service._github,
             state_mock,
@@ -112,7 +114,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
     stored_reproducer = Reproducer(
         kind=BugKind.CRASH,
         source_path=MagicMock(),
-        command=["opt", "test.ll"],
+        command=["opt", "-S", "-o", "/dev/null", "test.ll", "-passes=instcombine"],
         baseline_revision="oldrev",
         pr_head_sha="oldsha",
         patch_sha256="oldpatch",
@@ -173,6 +175,8 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
 
         await service._handle_pr_update(update)
 
-        mock_verify.assert_called_once_with(stored_reproducer, toolchain, "instcombine")
+        mock_verify.assert_called_once_with(
+            stored_reproducer, toolchain, ["-passes=instcombine"]
+        )
         fuzzer_mock.run.assert_not_called()
         mock_report.assert_called_once()

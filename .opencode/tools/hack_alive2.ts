@@ -3,49 +3,87 @@ import { tool } from "@opencode-ai/plugin"
 
 export default tool({
   description:
-    "Run alive2 to compare two IR files: a baseline-optimized output and a PR-optimized output.  Returns whether the transformation is correct.",
+    "Run both baseline and PR opt on an IR file, then compare the results with alive2.  Returns whether the transformation is correct.",
   args: {
-    baseline_ir_path: tool.schema
+    ir_path: tool.schema
       .string()
-      .describe("Relative path to the .ll file produced by baseline opt"),
-    pr_ir_path: tool.schema
+      .describe("Relative path to the .ll file inside the hack work directory"),
+    opt_args: tool.schema
       .string()
-      .describe("Relative path to the .ll file produced by PR opt"),
+      .describe("Space-separated opt arguments passed to both baseline and PR opt"),
   },
   async execute(args) {
     const ctx = loadContext()
-    const baseline = resolveConfined(args.baseline_ir_path, ctx.work_dir)
-    const pr = resolveConfined(args.pr_ir_path, ctx.work_dir)
-    const cmd: string[] = []
-    if (ctx.opt_memory_limit_bytes) {
+    const resolved = resolveConfined(args.ir_path, ctx.work_dir)
+    const extra = parseArgs(args.opt_args)
+    const baseOut = resolved + ".baseline.tgt.ll"
+    const prOut = resolved + ".pr.tgt.ll"
+
+    function memoryWrap(cmd: string[]): string[] {
+      if (!ctx.opt_memory_limit_bytes) return cmd
       const prlimit = Bun.which("prlimit")
-      if (prlimit) {
-        cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
-      }
+      if (!prlimit) return cmd
+      return [prlimit, `--as=${ctx.opt_memory_limit_bytes}`, ...cmd]
     }
-    cmd.push(
-      ctx.alive_tv,
-      "--smt-to=10000",
-      "--disable-undef-input",
-      baseline,
-      pr,
-    )
-    const proc = Bun.spawnSync({
-      cmd,
-      env: minimalEnv(),
+
+    const env = minimalEnv()
+
+    const baseProc = Bun.spawnSync({
+      cmd: memoryWrap([ctx.baseline_opt, "-S", "-o", baseOut, resolved, ...extra]),
+      env,
       stdout: "pipe",
       stderr: "pipe",
     })
-    const stdout = new TextDecoder().decode(proc.stdout)
-    const stderr = new TextDecoder().decode(proc.stderr)
-    const combined = stdout + stderr
+    if (baseProc.exitCode !== 0) {
+      return JSON.stringify({
+        baseline_crashed: true,
+        baseline_stderr: new TextDecoder().decode(baseProc.stderr).slice(-4000),
+        correct: false,
+        miscompile: false,
+      })
+    }
+
+    const prProc = Bun.spawnSync({
+      cmd: memoryWrap([ctx.pr_opt, "-S", "-o", prOut, resolved, ...extra]),
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (prProc.exitCode !== 0) {
+      tryCleanup(baseOut, prOut)
+      return JSON.stringify({
+        pr_crashed: true,
+        pr_stderr: new TextDecoder().decode(prProc.stderr).slice(-4000),
+        correct: false,
+        miscompile: false,
+      })
+    }
+
+    const aliveProc = Bun.spawnSync({
+      cmd: memoryWrap([
+        ctx.alive_tv,
+        "--smt-to=10000",
+        "--disable-undef-input",
+        baseOut,
+        prOut,
+      ]),
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    tryCleanup(baseOut, prOut)
+
+    const aliveOut = new TextDecoder().decode(aliveProc.stdout)
+    const aliveErr = new TextDecoder().decode(aliveProc.stderr)
+    const combined = aliveOut + aliveErr
     const correct =
       combined.includes("0 incorrect transformations") &&
       combined.includes("Transformation seems to be correct")
-    const positive_incorrect = /[1-9]\d* incorrect transformations?/.test(combined)
-    const miscompile = !correct && positive_incorrect
+    const positive = /[1-9]\d* incorrect transformations?/.test(combined)
+    const miscompile = !correct && positive
+
     return JSON.stringify({
-      exit_code: proc.exitCode,
+      exit_code: aliveProc.exitCode,
       correct,
       miscompile,
       counterexample: combined.slice(-8000),
@@ -67,6 +105,19 @@ function resolveConfined(rel: string, base: string): string {
     throw new Error(`Path "${rel}" escapes work directory`)
   }
   return resolved
+}
+
+function parseArgs(raw: string): string[] {
+  if (!raw || !raw.trim()) return []
+  return raw.trim().split(/\s+/)
+}
+
+function tryCleanup(...files: string[]): void {
+  for (const f of files) {
+    try {
+      Bun.file(f).delete()
+    } catch {}
+  }
 }
 
 function minimalEnv() {

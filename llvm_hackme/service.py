@@ -130,8 +130,9 @@ class HackmeService:
             stored = self._state.get_pull_state(pr_number)
             if stored.reproducer is not None:
                 try:
+                    stored_opt = _opt_args_from_command(stored.reproducer.command)
                     verified_existing = await verify_reproducer(
-                        stored.reproducer, toolchain, pass_name
+                        stored.reproducer, toolchain, stored_opt
                     )
                 except Exception:
                     LOGGER.exception(
@@ -174,7 +175,7 @@ class HackmeService:
                 if reproducer is not None:
                     try:
                         verified = await verify_reproducer(
-                            reproducer, toolchain, pass_name
+                            reproducer, toolchain, [f"-passes={pass_name}"]
                         )
                     except Exception:
                         LOGGER.exception("Verification failed for PR #%s", pr_number)
@@ -186,9 +187,9 @@ class HackmeService:
                 )
                 if hack_reproducer is not None:
                     try:
-                        hack_pass = _pass_from_command(hack_reproducer.command)
+                        opt_args = _opt_args_from_command(hack_reproducer.command)
                         verified = await verify_reproducer(
-                            hack_reproducer, toolchain, hack_pass
+                            hack_reproducer, toolchain, opt_args
                         )
                     except Exception:
                         LOGGER.exception(
@@ -241,6 +242,7 @@ class HackmeService:
             "baseline_src_dir": str(config.llvm_project_dir),
             "pr_src_dir": str(config.llvm_project_pr_dir),
             "opt_memory_limit_bytes": config.opt_memory_limit_bytes,
+            "suggested_opt_args": f"-passes={pass_name}",
         }
         config.hack_context_file.write_text(json.dumps(context))
 
@@ -396,11 +398,11 @@ class HackmeService:
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
 
 
-def _pass_from_command(command: list[str]) -> str:
-    for arg in command:
-        if arg.startswith("-passes="):
-            return arg.removeprefix("-passes=")
-    return "default<O3>"
+def _opt_args_from_command(command: list[str]) -> list[str]:
+    for i, arg in enumerate(command):
+        if arg == "-S" and i + 4 < len(command):
+            return list(command[i + 4 :])
+    return ["-passes=default<O3>"]
 
 
 def _find_opencode() -> str | None:
@@ -429,11 +431,13 @@ async def _hack_verify(
     from llvm_hackme.verification import check_crash, check_miscompilation
 
     ir_text = payload.get("ir", "")
-    pass_name = payload.get("pass_name", "")
+    opt_args_str = payload.get("opt_args", "")
     kind_str = payload.get("kind", "crash")
 
-    if not ir_text or not pass_name:
+    if not ir_text:
         return None
+
+    opt_args = opt_args_str.split() if opt_args_str.strip() else ["-passes=default<O3>"]
 
     src_file = hack_dir / "hack-reproducer.ll"
     src_file.write_text(ir_text)
@@ -447,7 +451,7 @@ async def _hack_verify(
         baseline_result = await check_crash(
             toolchain.baseline_opt,
             src_file,
-            pass_name,
+            opt_args,
             memory_limit_bytes=memory_limit_bytes,
         )
         if baseline_result is not None:
@@ -455,7 +459,7 @@ async def _hack_verify(
         pr_result = await check_crash(
             toolchain.pr_opt,
             src_file,
-            pass_name,
+            opt_args,
             memory_limit_bytes=memory_limit_bytes,
         )
         if pr_result is None:
@@ -469,7 +473,7 @@ async def _hack_verify(
                 "-o",
                 "/dev/null",
                 str(src_file),
-                f"-passes={pass_name}",
+                *opt_args,
             ],
             baseline_revision=toolchain.baseline_revision,
             pr_head_sha=update.pr.head_sha,
@@ -482,7 +486,7 @@ async def _hack_verify(
             toolchain.baseline_opt,
             toolchain.alive_tv,
             src_file,
-            pass_name,
+            opt_args,
             memory_limit_bytes=memory_limit_bytes,
         )
         if baseline_result is not None:
@@ -491,7 +495,7 @@ async def _hack_verify(
             toolchain.pr_opt,
             toolchain.alive_tv,
             src_file,
-            pass_name,
+            opt_args,
             memory_limit_bytes=memory_limit_bytes,
         )
         if pr_result is None:
@@ -505,7 +509,7 @@ async def _hack_verify(
                 "-o",
                 "/dev/null",
                 str(src_file),
-                f"-passes={pass_name}",
+                *opt_args,
             ],
             baseline_revision=toolchain.baseline_revision,
             pr_head_sha=update.pr.head_sha,
