@@ -40,6 +40,12 @@ def _validate_environment(config: Config) -> None:
     if not shutil.which("z3"):
         raise RuntimeError("z3 is not installed.  Install z3 and ensure it is on PATH.")
 
+    if not shutil.which("re2c"):
+        raise RuntimeError(
+            "re2c is not installed."
+            "  Required for alive2 build. Install re2c and ensure it is on PATH."
+        )
+
     if not shutil.which("llvm-symbolizer"):
         raise RuntimeError(
             "llvm-symbolizer not found on PATH."
