@@ -49,8 +49,8 @@ class OpenAIPatchReviewer:
         self._patch_chunk_chars = config.patch_chunk_chars
         self._max_patch_chunks = config.max_patch_chunks
 
-    def close(self) -> None:
-        self._client.close()
+    async def close(self) -> None:
+        await self._client.close()
 
     async def review(self, patch: str) -> ReviewDecision:
         if len(patch) > self._max_patch_chars:

@@ -92,7 +92,7 @@ async def plain_main(
         with contextlib.suppress(Exception):
             await github.aclose()
         with contextlib.suppress(Exception):
-            reviewer.close()
+            await reviewer.close()
         with contextlib.suppress(Exception):
             state.close()
 
@@ -110,7 +110,7 @@ def main() -> None:
             with contextlib.suppress(Exception):
                 asyncio.run(github.aclose())
             with contextlib.suppress(Exception):
-                reviewer.close()
+                asyncio.run(reviewer.close())
             with contextlib.suppress(Exception):
                 state.close()
 

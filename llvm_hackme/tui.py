@@ -37,7 +37,6 @@ class PREntry:
 class HackmeTUI(App[None]):
     CSS = """
     Screen {
-        layout: dock;
     }
 
     #status-header {
