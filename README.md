@@ -67,10 +67,10 @@ export OPENAI_MODEL=gpt-4o-mini
 uv sync
 
 # 3. Run (TUI mode by default)
-python main.py
+uv run python main.py
 
 # Or headless mode
-python main.py --plain
+uv run python main.py --plain
 ```
 
 The first run will clone `llvm/llvm-project` and `alive2`, then build the
