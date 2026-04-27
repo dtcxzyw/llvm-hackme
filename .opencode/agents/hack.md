@@ -277,15 +277,22 @@ you **MUST** check whether these flags are still valid and drop them if not:
 
 ### 3. Fast-Math Flags
 
-| Flag | Implication | Priority |
-|------|-------------|----------|
-| `nnan` | fadd/fsub/fmul/fdiv/frem: poison if any operand is NaN | **Must check** |
-| `ninf` | same ops: poison if any operand is ±Inf | **Must check** |
-| `nsz` | ±0 treated as identical (no poison) | Lower priority |
-| `arcp` | division reciprocal approx (no poison) | Lower priority |
-| `contract` | FMA allowed (no poison) | Lower priority |
-| `afn` | approximate functions allowed (no poison) | Lower priority |
-| `reassoc` | reassociation allowed (no poison) | Lower priority |
+**You may only use `nnan` and `ninf` in submitted IR.**  Never use `fast`, `nsz`,
+`arcp`, `contract`, `afn`, or `reassoc` — the server-side verification will reject
+IR containing these flags.  Only `nnan` and `ninf` carry poison semantics relevant to
+correctness bugs; the other fast-math flags relax ordering/precision guarantees and
+have no poison implication.
+
+| Flag | Implication | Allowed in IR? |
+|------|-------------|----------------|
+| `nnan` | fadd/fsub/fmul/fdiv/frem: poison if any operand is NaN | **Yes** |
+| `ninf` | same ops: poison if any operand is ±Inf | **Yes** |
+| `fast` | composite — implies all flags below | **No** |
+| `nsz` | ±0 treated as identical (no poison) | **No** |
+| `arcp` | division reciprocal approx (no poison) | **No** |
+| `contract` | FMA allowed (no poison) | **No** |
+| `afn` | approximate functions allowed (no poison) | **No** |
+| `reassoc` | reassociation allowed (no poison) | **No** |
 
 For `nnan`/`ninf`: does the fold turn a NaN/Inf result into a finite one, or vice versa?
 

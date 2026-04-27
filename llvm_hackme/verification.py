@@ -17,7 +17,14 @@ from llvm_hackme.commands import (
 )
 from llvm_hackme.models import BugKind, Reproducer
 
-LOGGER = logging.getLogger(__name__)
+_FORBIDDEN_FASTMATH_RE = re.compile(
+    r"^\s*(?:%\w+\s*=\s*)?"
+    r"(?:fadd|fsub|fmul|fdiv|frem|fcmp|call)\b"
+    r".*?\b(fast|nsz|arcp|contract|afn|reassoc)\b",
+    re.MULTILINE,
+)
+
+LOGGER = logging.getLogger(__name__)  # noqa: F401 — used by _verify_regression_*
 
 VERIFY_TIMEOUT = 120
 ALIVE2_INCORRECT_RE = re.compile(
@@ -151,6 +158,20 @@ def _try_unlink(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def _validate_ir_forbidden_flags(ir_source: Path) -> str | None:
+    try:
+        text = ir_source.read_text()
+    except FileNotFoundError:
+        return None
+    m = _FORBIDDEN_FASTMATH_RE.search(text)
+    if m:
+        return (
+            f"IR contains forbidden fast-math flag '{m.group(1)}'"
+            " — only nnan/ninf allowed"
+        )
+    return None
+
+
 async def verify_reproducer(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
@@ -183,6 +204,11 @@ async def _verify_regression_crash(
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
     src = reproducer.source_path
+
+    reject = _validate_ir_forbidden_flags(src)
+    if reject:
+        LOGGER.warning("Rejecting IR with forbidden flags: %s", reject)
+        return None
 
     baseline_crash = await check_crash(
         toolchain.baseline_opt,
@@ -225,6 +251,11 @@ async def _verify_regression_miscompilation(
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
     src = reproducer.source_path
+
+    reject = _validate_ir_forbidden_flags(src)
+    if reject:
+        LOGGER.warning("Rejecting IR with forbidden flags: %s", reject)
+        return None
 
     baseline_mis = await check_miscompilation(
         toolchain.baseline_opt,
