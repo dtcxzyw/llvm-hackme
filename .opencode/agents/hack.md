@@ -131,10 +131,10 @@ and postconditions:
 auto *I = cast<Instruction>(V);
 ```
 
-**Conditional casts — precondition is guarded by `if`:**
+**Conditional (nullable) casts — precondition is guarded by `if`:**
 
 ```
-if (auto *I = cast<Instruction>(V)) {
+if (auto *I = dyn_cast<Instruction>(V)) {
 // pre-condition: isa<Instruction>(V)
 }
 ```
