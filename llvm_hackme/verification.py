@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,46 +60,53 @@ class MiscompilationInfo:
 
 async def check_crash(
     opt_bin: str | Path,
-    ir_source: Path,
+    ir_content: str,
     opt_args: list[str],
     *,
     timeout: int = VERIFY_TIMEOUT,
     memory_limit_bytes: int | None = None,
 ) -> CrashInfo | None:
-    env = minimal_execution_env()
+    fd, tmp_path = tempfile.mkstemp(suffix=".ll")
     try:
-        await run_command(
-            [
-                str(opt_bin),
-                "-S",
-                "-o",
-                "/dev/null",
-                str(ir_source),
-                *opt_args,
-            ],
-            timeout=timeout,
-            env=env,
-            memory_limit_bytes=memory_limit_bytes,
-        )
-    except CommandError as exc:
-        result = exc.result
-        if result.returncode >= 0:
+        with os.fdopen(fd, "w") as wf:
+            wf.write(ir_content)
+        ir_file = Path(tmp_path)
+        env = minimal_execution_env()
+        try:
+            await run_command(
+                [
+                    str(opt_bin),
+                    "-S",
+                    "-o",
+                    "/dev/null",
+                    str(ir_file),
+                    *opt_args,
+                ],
+                timeout=timeout,
+                env=env,
+                memory_limit_bytes=memory_limit_bytes,
+            )
+        except CommandError as exc:
+            result = exc.result
+            if result.returncode >= 0:
+                return None
+            if _output_has_disk_full_error(result):
+                return None
+            stacktrace = (
+                result.stderr or result.stdout or f"signal {abs(result.returncode)}"
+            )
+            return CrashInfo(stacktrace=stacktrace)
+        except asyncio.TimeoutError:
             return None
-        if _output_has_disk_full_error(result):
-            return None
-        stacktrace = (
-            result.stderr or result.stdout or f"signal {abs(result.returncode)}"
-        )
-        return CrashInfo(stacktrace=stacktrace)
-    except asyncio.TimeoutError:
         return None
-    return None
+    finally:
+        _try_unlink(Path(tmp_path))
 
 
 async def check_miscompilation(
     opt_bin: str | Path,
     alive_tv: str | Path,
-    ir_source: Path,
+    ir_content: str,
     opt_args: list[str],
     *,
     timeout: int = VERIFY_TIMEOUT,
@@ -105,52 +114,59 @@ async def check_miscompilation(
 ) -> MiscompilationInfo | None:
     env = minimal_execution_env()
 
-    tgt = ir_source.with_suffix(".alive-check.tgt.ll")
+    fd, tmp_path = tempfile.mkstemp(suffix=".ll")
     try:
+        with os.fdopen(fd, "w") as wf:
+            wf.write(ir_content)
+        ir_file = Path(tmp_path)
+        tgt = ir_file.with_suffix(".alive-check.tgt.ll")
         try:
-            await run_command(
-                [
-                    str(opt_bin),
-                    "-S",
-                    "-o",
-                    str(tgt),
-                    str(ir_source),
-                    *opt_args,
-                ],
-                timeout=timeout,
-                env=env,
-                memory_limit_bytes=memory_limit_bytes,
-            )
-        except (CommandError, asyncio.TimeoutError):
-            return None
+            try:
+                await run_command(
+                    [
+                        str(opt_bin),
+                        "-S",
+                        "-o",
+                        str(tgt),
+                        str(ir_file),
+                        *opt_args,
+                    ],
+                    timeout=timeout,
+                    env=env,
+                    memory_limit_bytes=memory_limit_bytes,
+                )
+            except (CommandError, asyncio.TimeoutError):
+                return None
 
-        try:
-            alive_result = await run_command(
-                [
-                    str(alive_tv),
-                    "--smt-to=10000",
-                    "--disable-undef-input",
-                    str(ir_source),
-                    str(tgt),
-                ],
-                timeout=timeout,
-                check=False,
-            )
-        except asyncio.TimeoutError:
-            return None
+            try:
+                alive_result = await run_command(
+                    [
+                        str(alive_tv),
+                        "--smt-to=10000",
+                        "--disable-undef-input",
+                        str(ir_file),
+                        str(tgt),
+                    ],
+                    timeout=timeout,
+                    check=False,
+                )
+            except asyncio.TimeoutError:
+                return None
 
-        stdout = alive_result.stdout
-        if _output_has_disk_full_error(text=stdout):
+            stdout = alive_result.stdout
+            if _output_has_disk_full_error(text=stdout):
+                return None
+            correct = (
+                "0 incorrect transformations" in stdout
+                and "Transformation seems to be correct" in stdout
+            )
+            if not correct and ALIVE2_INCORRECT_RE.search(stdout):
+                return MiscompilationInfo(alive2_output=stdout)
             return None
-        correct = (
-            "0 incorrect transformations" in stdout
-            and "Transformation seems to be correct" in stdout
-        )
-        if not correct and ALIVE2_INCORRECT_RE.search(stdout):
-            return MiscompilationInfo(alive2_output=stdout)
-        return None
+        finally:
+            _try_unlink(tgt)
     finally:
-        _try_unlink(tgt)
+        _try_unlink(Path(tmp_path))
 
 
 def _try_unlink(path: Path) -> None:
@@ -158,12 +174,8 @@ def _try_unlink(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _validate_ir_forbidden_flags(ir_source: Path) -> str | None:
-    try:
-        text = ir_source.read_text()
-    except FileNotFoundError:
-        return None
-    m = _FORBIDDEN_FASTMATH_RE.search(text)
+def _validate_ir_forbidden_flags(ir_content: str) -> str | None:
+    m = _FORBIDDEN_FASTMATH_RE.search(ir_content)
     if m:
         return (
             f"IR contains forbidden fast-math flag '{m.group(1)}'"
@@ -185,9 +197,15 @@ async def verify_reproducer(
     *,
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
+    ir_content = reproducer.source_content
+    if ir_content is None:
+        LOGGER.warning("Reproducer has no source content, cannot verify")
+        return None
+
     if reproducer.kind == BugKind.CRASH:
         return await _verify_regression_crash(
             reproducer,
+            ir_content,
             toolchain,
             opt_args,
             memory_limit_bytes=memory_limit_bytes,
@@ -195,6 +213,7 @@ async def verify_reproducer(
     if reproducer.kind == BugKind.MISCOMPILATION:
         return await _verify_regression_miscompilation(
             reproducer,
+            ir_content,
             toolchain,
             opt_args,
             memory_limit_bytes=memory_limit_bytes,
@@ -204,61 +223,59 @@ async def verify_reproducer(
 
 async def _verify_regression_crash(
     reproducer: Reproducer,
+    ir_content: str,
     toolchain: ToolchainPaths,
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
-    src = reproducer.source_path
-
-    reject = _validate_ir_forbidden_flags(src)
+    reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
         LOGGER.warning("Rejecting IR with forbidden flags: %s", reject)
         return None
 
     baseline_crash = await check_crash(
         toolchain.baseline_opt,
-        src,
+        ir_content,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
     )
     if baseline_crash is not None:
-        LOGGER.warning("Baseline opt also crashes on %s — not a PR regression", src)
+        LOGGER.warning("Baseline opt also crashes — not a PR regression")
         return None
 
     pr_crash = await check_crash(
         toolchain.pr_opt,
-        src,
+        ir_content,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
     )
     if pr_crash is None:
-        LOGGER.warning("PR opt did not crash during re-verification of %s", src)
+        LOGGER.warning("PR opt did not crash during re-verification")
         return None
 
-    LOGGER.info("Verified crash reproducer: %s", src)
+    LOGGER.info("Verified crash reproducer")
     return Reproducer(
         kind=BugKind.CRASH,
-        source_path=src,
+        source_path=reproducer.source_path,
         command=reproducer.command,
         baseline_revision=reproducer.baseline_revision,
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
         stacktrace=pr_crash.stacktrace,
-        source_content=reproducer.source_content,
+        source_content=ir_content,
     )
 
 
 async def _verify_regression_miscompilation(
     reproducer: Reproducer,
+    ir_content: str,
     toolchain: ToolchainPaths,
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
-    src = reproducer.source_path
-
-    reject = _validate_ir_forbidden_flags(src)
+    reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
         LOGGER.warning("Rejecting IR with forbidden flags: %s", reject)
         return None
@@ -266,40 +283,36 @@ async def _verify_regression_miscompilation(
     baseline_mis = await check_miscompilation(
         toolchain.baseline_opt,
         toolchain.alive_tv,
-        src,
+        ir_content,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
     )
     if baseline_mis is not None:
-        LOGGER.warning(
-            "Baseline also has Alive2 issues on %s — not a PR regression", src
-        )
+        LOGGER.warning("Baseline also has Alive2 issues — not a PR regression")
         return None
 
     pr_mis = await check_miscompilation(
         toolchain.pr_opt,
         toolchain.alive_tv,
-        src,
+        ir_content,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
     )
     if pr_mis is None or is_alive2_approximation(pr_mis):
         if pr_mis is not None:
-            LOGGER.warning(
-                "Alive2 approximation on %s — not a confirmed miscompilation", src
-            )
+            LOGGER.warning("Alive2 approximation — not a confirmed miscompilation")
         else:
-            LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
+            LOGGER.warning("PR Alive2 passed during re-verification")
         return None
 
-    LOGGER.info("Verified miscompilation reproducer: %s", src)
+    LOGGER.info("Verified miscompilation reproducer")
     return Reproducer(
         kind=BugKind.MISCOMPILATION,
-        source_path=src,
+        source_path=reproducer.source_path,
         command=reproducer.command,
         baseline_revision=reproducer.baseline_revision,
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
         alive2_counterexample=pr_mis.alive2_output,
-        source_content=reproducer.source_content,
+        source_content=ir_content,
     )

@@ -17,6 +17,8 @@ from llvm_hackme.verification import (
     verify_reproducer,
 )
 
+IR_CONTENT = "define void @f() { ret void }"
+
 
 class TestCheckCrash:
     @pytest.mark.asyncio
@@ -26,7 +28,9 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.return_value = good
-            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
+            result = await check_crash(
+                "/opt/bin/opt", IR_CONTENT, ["-passes=instcombine"]
+            )
         assert result is None
 
     @pytest.mark.asyncio
@@ -38,7 +42,9 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.side_effect = exc
-            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
+            result = await check_crash(
+                "/opt/bin/opt", IR_CONTENT, ["-passes=instcombine"]
+            )
         assert result is not None
         assert result.stacktrace == "SIGSEGV\n"
 
@@ -51,7 +57,9 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.side_effect = exc
-            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
+            result = await check_crash(
+                "/opt/bin/opt", IR_CONTENT, ["-passes=instcombine"]
+            )
         assert result is not None
         assert "abort" in result.stacktrace
 
@@ -61,7 +69,9 @@ class TestCheckCrash:
             "llvm_hackme.verification.run_command", new_callable=AsyncMock
         ) as mock_run:
             mock_run.side_effect = asyncio.TimeoutError
-            result = await check_crash("/opt/bin/opt", Path("test.ll"), "instcombine")
+            result = await check_crash(
+                "/opt/bin/opt", IR_CONTENT, ["-passes=instcombine"]
+            )
         assert result is None
 
 
@@ -72,7 +82,7 @@ class TestCheckMiscompilation:
         alive_ok = CommandResult(
             args=(),
             returncode=0,
-            stdout="0 incorrect transformations\n",
+            stdout="0 incorrect transformations\nTransformation seems to be correct\n",
             stderr="",
         )
         with patch(
@@ -80,7 +90,10 @@ class TestCheckMiscompilation:
         ) as mock_run:
             mock_run.side_effect = [good_opt, alive_ok]
             result = await check_miscompilation(
-                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll"), "instcombine"
+                "/opt/bin/opt",
+                "/opt/alive/tv",
+                IR_CONTENT,
+                ["-passes=instcombine"],
             )
         assert result is None
 
@@ -98,7 +111,10 @@ class TestCheckMiscompilation:
         ) as mock_run:
             mock_run.side_effect = [good_opt, alive_bad]
             result = await check_miscompilation(
-                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll"), "instcombine"
+                "/opt/bin/opt",
+                "/opt/alive/tv",
+                IR_CONTENT,
+                ["-passes=instcombine"],
             )
         assert result is not None
         assert "Value mismatch" in result.alive2_output
@@ -113,7 +129,10 @@ class TestCheckMiscompilation:
         ) as mock_run:
             mock_run.side_effect = exc
             result = await check_miscompilation(
-                "/opt/bin/opt", "/opt/alive/tv", Path("test.ll"), "instcombine"
+                "/opt/bin/opt",
+                "/opt/alive/tv",
+                IR_CONTENT,
+                ["-passes=instcombine"],
             )
         assert result is None
 
@@ -128,6 +147,7 @@ class TestVerifyReproducer:
             baseline_revision="rev",
             pr_head_sha="sha",
             patch_sha256="p2",
+            source_content=IR_CONTENT,
         )
         toolchain = ToolchainPaths(
             baseline_opt=Path("/opt/baseline/opt"),
@@ -144,7 +164,9 @@ class TestVerifyReproducer:
             "llvm_hackme.verification.check_crash", new_callable=AsyncMock
         ) as mock_check:
             mock_check.side_effect = [None, CrashInfo(stacktrace="SIGSEGV")]
-            result = await verify_reproducer(reproducer, toolchain, "instcombine")
+            result = await verify_reproducer(
+                reproducer, toolchain, ["-passes=instcombine"]
+            )
         assert result is not None
         assert result.kind == BugKind.CRASH
         assert result.stacktrace == "SIGSEGV"
@@ -158,6 +180,7 @@ class TestVerifyReproducer:
             baseline_revision="rev",
             pr_head_sha="sha",
             patch_sha256="p2",
+            source_content=IR_CONTENT,
         )
         toolchain = ToolchainPaths(
             baseline_opt=Path("/opt/baseline/opt"),
@@ -177,7 +200,9 @@ class TestVerifyReproducer:
                 CrashInfo(stacktrace="SIGSEGV"),  # baseline crashes too
                 CrashInfo(stacktrace="SIGSEGV"),
             ]
-            result = await verify_reproducer(reproducer, toolchain, "instcombine")
+            result = await verify_reproducer(
+                reproducer, toolchain, ["-passes=instcombine"]
+            )
         assert result is None
         mock_check.assert_called_once()  # only baseline checked
 
@@ -190,6 +215,7 @@ class TestVerifyReproducer:
             baseline_revision="rev",
             pr_head_sha="sha",
             patch_sha256="p2",
+            source_content=IR_CONTENT,
         )
         toolchain = ToolchainPaths(
             baseline_opt=Path("/opt/baseline/opt"),
@@ -210,7 +236,9 @@ class TestVerifyReproducer:
                 None,  # baseline clean
                 MiscompilationInfo(alive2_output="Value mismatch"),
             ]
-            result = await verify_reproducer(reproducer, toolchain, "instcombine")
+            result = await verify_reproducer(
+                reproducer, toolchain, ["-passes=instcombine"]
+            )
         assert result is not None
         assert result.kind == BugKind.MISCOMPILATION
         assert "Value mismatch" in result.alive2_counterexample

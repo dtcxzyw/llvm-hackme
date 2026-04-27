@@ -150,76 +150,78 @@ class HackmeService:
                     await self._maybe_backoff(pr_number, pr)
                     return
 
-            try:
-                await self._builds.build_pr_opt()
-            except Exception:
-                LOGGER.exception("Failed to build PR opt #%s", pr_number)
-                transient = True
-                await self._maybe_backoff(pr_number, pr)
-                return
-
-            toolchain = self._builds.toolchain_paths(baseline_revision)
-
-            stored = self._state.get_pull_state(pr_number)
-            if stored.reproducer is not None:
                 try:
-                    stored_opt = _opt_args_from_command(stored.reproducer.command)
-                    verified_existing = await verify_reproducer(
-                        stored.reproducer,
-                        toolchain,
-                        stored_opt,
-                        memory_limit_bytes=self._config.opt_memory_limit_bytes,
-                    )
+                    await self._builds.build_pr_opt()
                 except Exception:
-                    LOGGER.exception(
-                        "Re-verification of existing reproducer failed for PR #%s",
-                        pr_number,
-                    )
-                    verified_existing = None
-                if verified_existing is not None:
-                    LOGGER.info(
-                        "PR #%s: existing reproducer still reproduces", pr_number
-                    )
-                    await self._emit_status(pr, "bug_found")
-                    self._state.save_reproducer(pr_number, verified_existing)
-                    await report_result(
-                        self._github,
-                        self._state,
-                        update,
-                        verified_existing,
-                        toolchain.baseline_revision,
-                        self._service_login,
-                    )
+                    LOGGER.exception("Failed to build PR opt #%s", pr_number)
+                    transient = True
+                    await self._maybe_backoff(pr_number, pr)
                     return
-                LOGGER.info(
-                    "PR #%s: existing reproducer no longer reproduces,"
-                    " running new fuzz",
-                    pr_number,
-                )
 
-            verified: Reproducer | None = None
-            if full_patch_applied:
-                fuzz_result = await self._fuzzer.run(
-                    update.patch,
-                    update.patch_sha256,
-                    pr.head_sha,
-                    toolchain,
-                )
-                reproducer = fuzz_result.reproducer
-                if reproducer is not None:
+                toolchain = self._builds.toolchain_paths(baseline_revision)
+
+                stored = self._state.get_pull_state(pr_number)
+                if stored.reproducer is not None:
                     try:
-                        verified = await verify_reproducer(
-                            reproducer,
+                        stored_opt = _opt_args_from_command(stored.reproducer.command)
+                        verified_existing = await verify_reproducer(
+                            stored.reproducer,
                             toolchain,
-                            [f"-passes={pass_name}"],
+                            stored_opt,
                             memory_limit_bytes=self._config.opt_memory_limit_bytes,
                         )
                     except Exception:
-                        LOGGER.exception("Verification failed for PR #%s", pr_number)
-                        verified = None
+                        LOGGER.exception(
+                            "Re-verification of existing reproducer failed for PR #%s",
+                            pr_number,
+                        )
+                        verified_existing = None
+                    if verified_existing is not None:
+                        LOGGER.info(
+                            "PR #%s: existing reproducer still reproduces", pr_number
+                        )
+                        await self._emit_status(pr, "bug_found")
+                        self._state.save_reproducer(pr_number, verified_existing)
+                        await report_result(
+                            self._github,
+                            self._state,
+                            update,
+                            verified_existing,
+                            toolchain.baseline_revision,
+                            self._service_login,
+                        )
+                        return
+                    LOGGER.info(
+                        "PR #%s: existing reproducer no longer reproduces,"
+                        " running new fuzz",
+                        pr_number,
+                    )
 
-            if verified is None:
-                verified = await self._run_hack_agent(update, toolchain, pass_name)
+                verified: Reproducer | None = None
+                if full_patch_applied:
+                    fuzz_result = await self._fuzzer.run(
+                        update.patch,
+                        update.patch_sha256,
+                        pr.head_sha,
+                        toolchain,
+                    )
+                    reproducer = fuzz_result.reproducer
+                    if reproducer is not None:
+                        try:
+                            verified = await verify_reproducer(
+                                reproducer,
+                                toolchain,
+                                [f"-passes={pass_name}"],
+                                memory_limit_bytes=self._config.opt_memory_limit_bytes,
+                            )
+                        except Exception:
+                            LOGGER.exception(
+                                "Verification failed for PR #%s", pr_number
+                            )
+                            verified = None
+
+                if verified is None:
+                    verified = await self._run_hack_agent(update, toolchain, pass_name)
 
             if verified is not None:
                 await self._emit_status(pr, "bug_found")
@@ -542,9 +544,6 @@ async def _hack_verify(
         LOGGER.warning("Rejected unsafe opt_args from hack agent: %s", opt_args)
         return None
 
-    src_file = hack_dir / "hack-reproducer.ll"
-    src_file.write_text(ir_text)
-
     try:
         kind = BugKind(kind_str)
     except ValueError:
@@ -552,13 +551,13 @@ async def _hack_verify(
 
     candidate = Reproducer(
         kind=kind,
-        source_path=src_file,
+        source_path=hack_dir / "hack-reproducer.ll",
         command=[
             str(toolchain.pr_opt),
             "-S",
             "-o",
             "/dev/null",
-            str(src_file),
+            str(hack_dir / "hack-reproducer.ll"),
             *opt_args,
         ],
         baseline_revision=toolchain.baseline_revision,
