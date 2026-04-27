@@ -34,9 +34,6 @@ def _setup_logging(logs_dir: Path) -> None:
     )
     handler.setFormatter(fmt)
     root.addHandler(handler)
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(fmt)
-    root.addHandler(stderr_handler)
 
 
 def _validate_environment(config: Config) -> None:
@@ -85,6 +82,11 @@ async def plain_main(
     github: GitHubClient,
     reviewer: OpenAIPatchReviewer,
 ) -> None:
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    logging.getLogger().addHandler(stderr_handler)
     service = HackmeService(config, state, github, reviewer)
     try:
         await service.run_forever()
