@@ -13,6 +13,7 @@ from llvm_hackme.models import (
     Reproducer,
 )
 from llvm_hackme.reporting import (
+    COMMENT_FIRST_LINE,
     find_llvm_hackme_comment,
     make_comment_body,
     report_result,
@@ -31,7 +32,8 @@ class TestCommentBody:
             stacktrace="SIGSEGV at address 0x0",
         )
         body = make_comment_body(CommentState.BUG_FOUND, reproducer)
-        assert "The following correctness issue was found by llvm-hackme." in body
+        assert "The following correctness issue was found by" in body
+        assert "llvm-hackme" in body
         assert "bug_found" in body
         assert "rev123" in body
         assert "sha456" in body
@@ -86,9 +88,7 @@ class TestCommentBody:
         for state in CommentState:
             body = make_comment_body(state, reproducer)
             first_line = body.strip().split("\n", 1)[0].strip()
-            assert first_line == (
-                "The following correctness issue was found by llvm-hackme."
-            )
+            assert first_line == COMMENT_FIRST_LINE
 
 
 class TestFindComment:
@@ -100,7 +100,7 @@ class TestFindComment:
             IssueComment(
                 id=2,
                 html_url="url2",
-                body="The following correctness issue was found by llvm-hackme.\nRest of body",  # noqa: E501
+                body=f"{COMMENT_FIRST_LINE}\nRest of body",
                 author_login="service-login",
             ),
         ]
@@ -128,7 +128,7 @@ class TestFindComment:
             IssueComment(
                 id=4,
                 html_url="url4",
-                body="The following correctness issue was found by llvm-hackme.",
+                body=COMMENT_FIRST_LINE,
                 author_login="wrong-login",
             ),
         ]
@@ -268,10 +268,7 @@ class TestReportResult:
         existing = IssueComment(
             id=5,
             html_url="https://old/comment",
-            body=(
-                "The following correctness issue was found by llvm-hackme.\n"
-                "<!-- llvm-hackme-state: bug_found -->"
-            ),
+            body=(f"{COMMENT_FIRST_LINE}\n<!-- llvm-hackme-state: bug_found -->"),
             author_login="service-login",
         )
         github = MagicMock(spec=GitHubClient)
@@ -329,10 +326,7 @@ class TestReportResult:
         existing = IssueComment(
             id=5,
             html_url="https://old/comment",
-            body=(
-                "The following correctness issue was found by llvm-hackme.\n"
-                "<!-- llvm-hackme-state: bug_found -->"
-            ),
+            body=(f"{COMMENT_FIRST_LINE}\n<!-- llvm-hackme-state: bug_found -->"),
             author_login="service-login",
         )
         github = MagicMock(spec=GitHubClient)

@@ -12,7 +12,12 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-COMMENT_FIRST_LINE = "The following correctness issue was found by llvm-hackme."
+_REPO_URL = "https://github.com/dtcxzyw/llvm-hackme"
+_LLVM_HACKME_LINK = f"[llvm-hackme]({_REPO_URL})"
+
+COMMENT_FIRST_LINE = (
+    f"The following correctness issue was found by {_LLVM_HACKME_LINK}."
+)
 
 _MARKER_PREFIX = "<!-- llvm-hackme-"
 
@@ -100,9 +105,10 @@ def make_comment_body(
         lines.append("## Status: Previously reported issue no longer reproduces")
         lines.append("")
         lines.append(
-            "The correctness bug previously reported by llvm-hackme no longer "
-            "reproduces with the current PR update, and fuzzing did not identify "
-            "any new correctness bugs (opt crashes or Alive2 miscompilations)."
+            f"The correctness bug previously reported by {_LLVM_HACKME_LINK}"
+            " no longer reproduces with the current PR update, and fuzzing did"
+            " not identify any new correctness bugs (opt crashes or Alive2"
+            " miscompilations)."
         )
 
     return "\n".join(lines) + "\n"
@@ -121,7 +127,7 @@ def find_llvm_hackme_comment(
 
 
 REVIEW_REQUEST_BODY = (
-    "A correctness issue was identified by llvm-hackme. "
+    f"A correctness issue was identified by {_LLVM_HACKME_LINK}. "
     "Please see the [issue comment]({comment_url}) for details."
 )
 
