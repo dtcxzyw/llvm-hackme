@@ -102,7 +102,9 @@ class HackmeService:
         pr_number = pr.number
         transient = False
 
-        log_file = self._config.logs_dir / f"pr-{pr_number}.log"
+        log_file = self._config.logs_dir / (
+            f"pr-{pr_number}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}.log"
+        )
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -445,7 +447,10 @@ class HackmeService:
     async def _baseline_update_loop(self) -> None:
         while True:
             try:
-                log_file = self._config.logs_dir / "baseline-update.log"
+                log_file = self._config.logs_dir / (
+                    f"baseline-update-"
+                    f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}.log"
+                )
                 log_file.parent.mkdir(parents=True, exist_ok=True)
                 set_command_log_path(log_file)
                 async with self._build_lock:
