@@ -6,7 +6,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from llvm_hackme.commands import minimal_execution_env, run_command
+from llvm_hackme.commands import (
+    append_command_log_message,
+    minimal_execution_env,
+    run_command,
+)
 from llvm_hackme.config import Config
 
 LOGGER = logging.getLogger(__name__)
@@ -68,9 +72,11 @@ class BuildManager:
         return old_llvm, old_alive2, new_revision
 
     async def build_baseline_toolchain(self) -> None:
+        LOGGER.info("Starting baseline toolchain build")
         await self._configure_and_build_baseline()
         await self._configure_and_build_alive2()
         await self._configure_and_build_fuzz_tools()
+        LOGGER.info("Baseline toolchain build complete")
 
     async def rollback_sources(self, llvm_rev: str, alive2_rev: str) -> None:
         await self._checkout_rev(llvm_rev, self.config.llvm_project_dir)
@@ -97,6 +103,10 @@ class BuildManager:
         )
 
     async def prepare_pr_worktree(self, patch: str, head_sha: str) -> tuple[str, bool]:
+        LOGGER.info("Preparing PR worktree (SHA: %s)", head_sha[:12])
+        append_command_log_message(
+            f"--- Preparing PR worktree (SHA: {head_sha[:12]}) ---"
+        )
         baseline_revision = await self.current_baseline_revision()
         await self._sync_pr_worktree(baseline_revision)
         if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
@@ -104,10 +114,16 @@ class BuildManager:
         patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
         full_patch_applied = await self._apply_patch(patch_path, baseline_revision)
+        LOGGER.info("PR worktree ready (full patch applied: %s)", full_patch_applied)
+        append_command_log_message(
+            f"--- PR worktree ready (full patch: {full_patch_applied}) ---"
+        )
         return baseline_revision, full_patch_applied
 
     async def build_pr_opt(self) -> None:
+        LOGGER.info("Building PR opt")
         await self._configure_and_build_pr_opt()
+        LOGGER.info("PR opt build done")
 
     async def _apply_patch(self, patch_path: Path, baseline_revision: str) -> bool:
         cwd = self.config.llvm_project_pr_dir
@@ -224,6 +240,8 @@ class BuildManager:
         )
 
     async def _configure_and_build_baseline(self) -> None:
+        LOGGER.info("Configuring baseline cmake...")
+        append_command_log_message("--- Configuring baseline cmake ---")
         self.config.llvm_build_dir.mkdir(parents=True, exist_ok=True)
         await run_command(
             [
@@ -248,6 +266,10 @@ class BuildManager:
             env=self._build_env(self.config.llvm_project_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("Building baseline opt, llvm-extract, llvm-reduce...")
+        append_command_log_message(
+            "--- Building baseline opt, llvm-extract, llvm-reduce ---"
+        )
         await run_command(
             [
                 "cmake",
@@ -264,8 +286,12 @@ class BuildManager:
             env=self._build_env(self.config.llvm_project_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("Baseline build complete")
+        append_command_log_message("--- Baseline build complete ---")
 
     async def _configure_and_build_pr_opt(self) -> None:
+        LOGGER.info("Configuring PR cmake...")
+        append_command_log_message("--- Configuring PR cmake ---")
         self.config.llvm_build_pr_dir.mkdir(parents=True, exist_ok=True)
         await run_command(
             [
@@ -290,14 +316,20 @@ class BuildManager:
             env=self._build_env(self.config.llvm_project_pr_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("Building PR opt...")
+        append_command_log_message("--- Building PR opt ---")
         await run_command(
             ["cmake", "--build", ".", "-j", str(self.config.build_jobs), "-t", "opt"],
             cwd=self.config.llvm_build_pr_dir,
             env=self._build_env(self.config.llvm_project_pr_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("PR opt build complete")
+        append_command_log_message("--- PR opt build complete ---")
 
     async def _configure_and_build_alive2(self) -> None:
+        LOGGER.info("Configuring alive2 cmake...")
+        append_command_log_message("--- Configuring alive2 cmake ---")
         self.config.alive2_build_dir.mkdir(parents=True, exist_ok=True)
         await run_command(
             [
@@ -314,6 +346,8 @@ class BuildManager:
             env=self._build_env(self.config.alive2_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("Building alive-tv...")
+        append_command_log_message("--- Building alive-tv ---")
         await run_command(
             [
                 "cmake",
@@ -328,8 +362,12 @@ class BuildManager:
             env=self._build_env(self.config.alive2_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("alive-tv build complete")
+        append_command_log_message("--- alive-tv build complete ---")
 
     async def _configure_and_build_fuzz_tools(self) -> None:
+        LOGGER.info("Configuring fuzz tools cmake...")
+        append_command_log_message("--- Configuring fuzz tools cmake ---")
         self.config.fuzz_tools_build_dir.mkdir(parents=True, exist_ok=True)
         await run_command(
             [
@@ -345,9 +383,13 @@ class BuildManager:
             env=self._build_env(self.config.llvm_project_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("Building fuzz tools...")
+        append_command_log_message("--- Building fuzz tools ---")
         await run_command(
             ["cmake", "--build", ".", "-j", str(self.config.build_jobs)],
             cwd=self.config.fuzz_tools_build_dir,
             env=self._build_env(self.config.llvm_project_dir),
             timeout=self._BUILD_TIMEOUT,
         )
+        LOGGER.info("Fuzz tools build complete")
+        append_command_log_message("--- Fuzz tools build complete ---")

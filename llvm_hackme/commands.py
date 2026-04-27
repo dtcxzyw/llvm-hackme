@@ -107,6 +107,18 @@ def _write_command_log(args: tuple[str, ...], result: CommandResult) -> None:
         pass
 
 
+def append_command_log_message(message: str) -> None:
+    log_path = _command_log_path.get(None)
+    if log_path is None:
+        return
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        with open(log_path, "a") as f:
+            f.write(f"[{ts}] {message}\n")
+    except OSError:
+        pass
+
+
 def minimal_execution_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     env = {
         "HOME": os.environ.get("HOME", ""),
