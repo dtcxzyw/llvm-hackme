@@ -186,7 +186,7 @@ class BuildManager:
             [
                 "cmake",
                 str(self.config.llvm_project_dir / "llvm"),
-                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
                 "-DBUILD_SHARED_LIBS=ON",
                 "-G",
                 "Ninja",
@@ -226,7 +226,7 @@ class BuildManager:
             [
                 "cmake",
                 str(self.config.llvm_project_pr_dir / "llvm"),
-                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
                 "-DBUILD_SHARED_LIBS=ON",
                 "-G",
                 "Ninja",
@@ -259,7 +259,7 @@ class BuildManager:
                 "-GNinja",
                 f"-DCMAKE_PREFIX_PATH={self.config.llvm_build_dir}",
                 "-DBUILD_TV=1",
-                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
                 "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
                 "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
             ],
@@ -280,7 +280,7 @@ class BuildManager:
                 str(Path(__file__).resolve().parent.parent / "fuzz_tools"),  # noqa: ASYNC240
                 "-GNinja",
                 f"-DLLVM_DIR={self.config.llvm_build_dir / 'lib' / 'cmake' / 'llvm'}",
-                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
                 "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
                 "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
             ],

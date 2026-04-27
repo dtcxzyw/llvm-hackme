@@ -30,6 +30,12 @@ def _validate_environment(config: Config) -> None:
     if not shutil.which("z3"):
         raise RuntimeError("z3 is not installed.  Install z3 and ensure it is on PATH.")
 
+    if not shutil.which("llvm-symbolizer"):
+        raise RuntimeError(
+            "llvm-symbolizer not found on PATH."
+            "  Required for crash stacktrace generation."
+        )
+
     opencode_bin = _find_opencode()
     if opencode_bin is None:
         raise RuntimeError(
