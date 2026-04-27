@@ -18,13 +18,13 @@ _MARKER_PREFIX = "<!-- llvm-hackme-"
 
 
 def _make_run_line(command: list[str]) -> str:
-    pass_arg = "-passes=?"
-    for arg in command:
-        if arg.startswith("-passes="):
-            pass_arg = arg
-            break
-    run = f"; RUN: opt {pass_arg} -S"
-    return run
+    for i, arg in enumerate(command):
+        if arg.endswith(".ll") and not arg.startswith("-"):
+            extra = command[i + 1 :]
+            if extra:
+                return "; RUN: opt " + " ".join(extra) + " -S"
+            return "; RUN: opt -passes=? -S"
+    return "; RUN: opt -passes=? -S"
 
 
 def make_comment_body(
@@ -97,11 +97,12 @@ def make_comment_body(
         lines.append(f"**Patch SHA256**: `{reproducer.patch_sha256}`")
 
     elif state == CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH:
-        lines.append("## Status: No new correctness issue found")
+        lines.append("## Status: Previously reported issue no longer reproduces")
         lines.append("")
         lines.append(
-            "Fuzzing did not identify any new correctness bugs (opt crashes or "
-            "Alive2 miscompilations) for the current patch."
+            "The correctness bug previously reported by llvm-hackme no longer "
+            "reproduces with the current PR update, and fuzzing did not identify "
+            "any new correctness bugs (opt crashes or Alive2 miscompilations)."
         )
 
     return "\n".join(lines) + "\n"
@@ -185,6 +186,18 @@ async def report_result(
                     LOGGER.exception(
                         "Failed to request changes for PR #%s", pr_update.pr.number
                     )
+        else:
+            if old_reproducer is not None:
+                body = make_comment_body(
+                    CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH, None
+                )
+                await github.update_issue_comment(existing.id, body)
+                state.clear_reproducer(pr_update.pr.number)
+                LOGGER.info(
+                    "Updated existing comment for PR #%s"
+                    " (no_issue_found - previously reported bug no longer reproduces)",
+                    pr_update.pr.number,
+                )
         return
 
     if reproducer is None:

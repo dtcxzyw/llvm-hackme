@@ -196,48 +196,46 @@ class FuzzRunner:
         pass_name: str,
     ) -> FuzzResult:
         config = self._config
-        sem = asyncio.Semaphore(config.max_fuzz_parallelism)
         deadline = time.monotonic() + self._fuzz_budget
         idx = 0
         found: asyncio.Event = asyncio.Event()
         result_holder: dict[str, Reproducer | None] = {}
 
         async def one_iteration(idx: int) -> Reproducer | None:
-            async with sem:
-                if found.is_set():
-                    return None
-                try:
-                    return await self._fuzz_one(
-                        work,
-                        idx,
-                        seeds_file,
-                        toolchain,
-                        patch_sha256,
-                        pr_head_sha,
-                        pass_name,
-                    )
-                except Exception:
-                    LOGGER.exception("Fuzz iteration %s failed", idx)
-                    return None
+            if found.is_set():
+                return None
+            try:
+                return await self._fuzz_one(
+                    work,
+                    idx,
+                    seeds_file,
+                    toolchain,
+                    patch_sha256,
+                    pr_head_sha,
+                    pass_name,
+                )
+            except Exception:
+                LOGGER.exception("Fuzz iteration %s failed", idx)
+                return None
 
-        tasks: list[asyncio.Task[Reproducer | None]] = []
+        active: set[asyncio.Task[Reproducer | None]] = set()
         try:
             while time.monotonic() < deadline and not found.is_set():
-                task = asyncio.create_task(one_iteration(idx))
-                tasks.append(task)
-                idx += 1
+                while len(active) >= config.max_fuzz_parallelism:
+                    done, active = await asyncio.wait(
+                        active, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for t in done:
+                        result = t.result()
+                        if result is not None and not found.is_set():
+                            found.set()
+                            result_holder["reproducer"] = result
 
-                done, pending = await asyncio.wait(
-                    tasks, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
-                )
-                for t in done:
-                    result = t.result()
-                    if result is not None and not found.is_set():
-                        found.set()
-                        result_holder["reproducer"] = result
-                    tasks.remove(t)
+                task = asyncio.create_task(one_iteration(idx))
+                active.add(task)
+                idx += 1
         finally:
-            for t in tasks:
+            for t in active:
                 if not t.done():
                     t.cancel()
 
@@ -398,7 +396,7 @@ class FuzzRunner:
             "#!/bin/bash\n"
             f"{shlex.quote(str(toolchain.pr_opt))} -S -o /dev/null"
             f" -passes={shlex.quote(pass_name)}"
-            f" {shlex.quote('$1')} >/dev/null 2>&1\n"
+            f' "$1" >/dev/null 2>&1\n'
             "test $? -ne 0\n"
         )
         test_script.chmod(0o755)

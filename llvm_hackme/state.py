@@ -5,7 +5,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from llvm_hackme.models import Reproducer
@@ -28,7 +28,7 @@ class StateStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -128,6 +128,7 @@ class StateStore:
         self, pr_number: int, *, head_sha: str, patch_sha256: str
     ) -> None:
         with self._lock, self._conn:
+            now = datetime.now(timezone.utc).isoformat()
             self._conn.execute(
                 """
                 INSERT INTO pull_state (
@@ -142,11 +143,12 @@ class StateStore:
                     patch_sha256 = excluded.patch_sha256,
                     updated_at = excluded.updated_at
                 """,
-                (pr_number, head_sha, patch_sha256, datetime.utcnow().isoformat()),
+                (pr_number, head_sha, patch_sha256, now),
             )
 
     def save_comment(self, pr_number: int, comment_id: int, comment_url: str) -> None:
         with self._lock, self._conn:
+            now = datetime.now(timezone.utc).isoformat()
             self._conn.execute(
                 """
                 INSERT INTO pull_state (
@@ -161,7 +163,7 @@ class StateStore:
                     comment_url = excluded.comment_url,
                     updated_at = excluded.updated_at
                 """,
-                (pr_number, comment_id, comment_url, datetime.utcnow().isoformat()),
+                (pr_number, comment_id, comment_url, now),
             )
 
     def save_reproducer(self, pr_number: int, reproducer: Reproducer) -> None:
@@ -181,7 +183,7 @@ class StateStore:
                 (
                     pr_number,
                     json.dumps(reproducer.to_json(), sort_keys=True),
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                 ),
             )
 
@@ -193,7 +195,7 @@ class StateStore:
                 SET reproducer_json = NULL, updated_at = ?
                 WHERE pr_number = ?
                 """,
-                (datetime.utcnow().isoformat(), pr_number),
+                (datetime.now(timezone.utc).isoformat(), pr_number),
             )
 
     def mark_processed(self, pr_number: int) -> None:
@@ -205,8 +207,8 @@ class StateStore:
                 WHERE pr_number = ?
                 """,
                 (
-                    datetime.utcnow().isoformat(),
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     pr_number,
                 ),
             )
@@ -221,7 +223,7 @@ class StateStore:
                     retry_count = retry_count + 1,
                     updated_at = excluded.updated_at
                 """,
-                (pr_number, datetime.utcnow().isoformat()),
+                (pr_number, datetime.now(timezone.utc).isoformat()),
             )
             row = self._conn.execute(
                 "SELECT retry_count FROM pull_state WHERE pr_number = ?",
@@ -242,12 +244,13 @@ class StateStore:
 
     def set_pending_until(self, pr_number: int, pending_until: datetime) -> None:
         with self._lock, self._conn:
+            now = datetime.now(timezone.utc).isoformat()
             self._conn.execute(
                 """
                 UPDATE pull_state SET pending_until = ?, updated_at = ?
                 WHERE pr_number = ?
                 """,
-                (pending_until.isoformat(), datetime.utcnow().isoformat(), pr_number),
+                (pending_until.isoformat(), now, pr_number),
             )
 
     def _get_metadata(self, key: str) -> str | None:

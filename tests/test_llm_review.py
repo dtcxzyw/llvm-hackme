@@ -32,6 +32,7 @@ def reviewer() -> OpenAIPatchReviewer:
             max_patch_chunks=4,
             opt_memory_limit_bytes=1024**3,
             max_fuzz_parallelism=1,
+            build_jobs=32,
         )
     )
 

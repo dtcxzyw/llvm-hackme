@@ -6,10 +6,10 @@ import logging
 import shutil
 import subprocess
 import sys
-import time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
+from llvm_hackme.commands import find_opencode as find_opencode
 from llvm_hackme.config import Config
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
@@ -17,20 +17,7 @@ from llvm_hackme.service import HackmeService
 from llvm_hackme.state import StateStore
 from llvm_hackme.tui import HackmeTUI
 
-
-def _find_opencode() -> str | None:
-    which = shutil.which("opencode")
-    if which:
-        return which
-    candidates = [Path.home() / ".opencode" / "bin" / "opencode"]
-    for c in candidates:
-        if c.is_file():
-            return str(c)
-    return None
-
-
 _LOG_RETENTION_DAYS = 10
-_LOG_SECONDS_PER_DAY = 86400
 
 
 def _setup_logging(logs_dir: Path) -> None:
@@ -52,20 +39,6 @@ def _setup_logging(logs_dir: Path) -> None:
     root.addHandler(stderr_handler)
 
 
-def _cleanup_old_logs(logs_dir: Path) -> None:
-    if not logs_dir.is_dir():
-        return
-    cutoff = time.time() - _LOG_RETENTION_DAYS * _LOG_SECONDS_PER_DAY
-    for entry in logs_dir.iterdir():
-        if not entry.is_file():
-            continue
-        try:
-            if entry.stat().st_mtime < cutoff:
-                entry.unlink()
-        except OSError:
-            pass
-
-
 def _validate_environment(config: Config) -> None:
     if not shutil.which("z3"):
         raise RuntimeError("z3 is not installed.  Install z3 and ensure it is on PATH.")
@@ -76,7 +49,7 @@ def _validate_environment(config: Config) -> None:
             "  Required for crash stacktrace generation."
         )
 
-    opencode_bin = _find_opencode()
+    opencode_bin = find_opencode()
     if opencode_bin is None:
         raise RuntimeError(
             "opencode binary not found.  Install opencode or set it on PATH."
@@ -112,8 +85,6 @@ async def plain_main(
     github: GitHubClient,
     reviewer: OpenAIPatchReviewer,
 ) -> None:
-    _setup_logging(config.logs_dir)
-    _cleanup_old_logs(config.logs_dir)
     service = HackmeService(config, state, github, reviewer)
     try:
         await service.run_forever()
@@ -129,20 +100,19 @@ async def plain_main(
 def main() -> None:
     config, state, github, reviewer = _create_objects()
     _setup_logging(config.logs_dir)
-    _cleanup_old_logs(config.logs_dir)
-    try:
-        if len(sys.argv) > 1 and sys.argv[1] in ("--plain", "-p"):
-            asyncio.run(plain_main(config, state, github, reviewer))
-        else:
+    if len(sys.argv) > 1 and sys.argv[1] in ("--plain", "-p"):
+        asyncio.run(plain_main(config, state, github, reviewer))
+    else:
+        try:
             app = HackmeTUI(config, state, github, reviewer)
             app.run()
-    finally:
-        with contextlib.suppress(Exception):
-            asyncio.run(github.aclose())
-        with contextlib.suppress(Exception):
-            reviewer.close()
-        with contextlib.suppress(Exception):
-            state.close()
+        finally:
+            with contextlib.suppress(Exception):
+                asyncio.run(github.aclose())
+            with contextlib.suppress(Exception):
+                reviewer.close()
+            with contextlib.suppress(Exception):
+                state.close()
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ class BuildManager:
     _BUILD_TIMEOUT = 3600
     _CMDLINE_TIMEOUT = 120
 
-    async def update_baseline(self) -> str:
+    async def sync_baseline_sources(self) -> tuple[str, str, str]:
         self.config.work_dir.mkdir(parents=True, exist_ok=True)
         await self._ensure_clone(self.config.llvm_project_dir, LLVM_REPOSITORY)
         await self._ensure_clone(self.config.alive2_dir, ALIVE2_REPOSITORY)
@@ -64,22 +64,17 @@ class BuildManager:
         await self._checkout_rev("origin/main", self.config.llvm_project_dir)
         await self._checkout_rev("origin/master", self.config.alive2_dir)
 
-        try:
-            await self._configure_and_build_baseline()
-            await self._configure_and_build_alive2()
-            await self._configure_and_build_fuzz_tools()
-        except Exception:
-            LOGGER.exception(
-                "Baseline update failed, rolling back %s → %s and %s → %s",
-                self.config.llvm_project_dir,
-                old_llvm,
-                self.config.alive2_dir,
-                old_alive2,
-            )
-            await self._rollback(old_llvm, old_alive2)
-            raise
+        new_revision = await self.current_baseline_revision()
+        return old_llvm, old_alive2, new_revision
 
-        return await self.current_baseline_revision()
+    async def build_baseline_toolchain(self) -> None:
+        await self._configure_and_build_baseline()
+        await self._configure_and_build_alive2()
+        await self._configure_and_build_fuzz_tools()
+
+    async def rollback_sources(self, llvm_rev: str, alive2_rev: str) -> None:
+        await self._checkout_rev(llvm_rev, self.config.llvm_project_dir)
+        await self._checkout_rev(alive2_rev, self.config.alive2_dir)
 
     async def _rev_parse(self, ref: str, work_dir: Path) -> str:
         result = await run_command(
@@ -101,26 +96,18 @@ class BuildManager:
             env=minimal_execution_env(),
         )
 
-    async def _rollback(self, llvm_rev: str, alive2_rev: str) -> None:
-        await self._checkout_rev(llvm_rev, self.config.llvm_project_dir)
-        await self._checkout_rev(alive2_rev, self.config.alive2_dir)
-        await self._configure_and_build_baseline()
-        await self._configure_and_build_alive2()
-        await self._configure_and_build_fuzz_tools()
-
-    async def prepare_pr_build(
-        self, patch: str, head_sha: str
-    ) -> tuple[ToolchainPaths, bool]:
+    async def prepare_pr_worktree(self, patch: str, head_sha: str) -> tuple[str, bool]:
         baseline_revision = await self.current_baseline_revision()
         await self._sync_pr_worktree(baseline_revision)
         if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
             raise RuntimeError(f"Invalid head SHA: {head_sha!r}")
         patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
+        full_patch_applied = await self._apply_patch(patch_path, baseline_revision)
+        return baseline_revision, full_patch_applied
 
-        tests_applied = await self._apply_patch(patch_path, baseline_revision)
+    async def build_pr_opt(self) -> None:
         await self._configure_and_build_pr_opt()
-        return self.toolchain_paths(baseline_revision), tests_applied
 
     async def _apply_patch(self, patch_path: Path, baseline_revision: str) -> bool:
         cwd = self.config.llvm_project_pr_dir
@@ -267,7 +254,7 @@ class BuildManager:
                 "--build",
                 ".",
                 "-j",
-                "32",
+                str(self.config.build_jobs),
                 "-t",
                 "opt",
                 "llvm-extract",
@@ -304,7 +291,7 @@ class BuildManager:
             timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
-            ["cmake", "--build", ".", "-j", "32", "-t", "opt"],
+            ["cmake", "--build", ".", "-j", str(self.config.build_jobs), "-t", "opt"],
             cwd=self.config.llvm_build_pr_dir,
             env=self._build_env(self.config.llvm_project_pr_dir),
             timeout=self._BUILD_TIMEOUT,
@@ -328,7 +315,15 @@ class BuildManager:
             timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
-            ["cmake", "--build", ".", "-j", "32", "-t", "alive-tv"],
+            [
+                "cmake",
+                "--build",
+                ".",
+                "-j",
+                str(self.config.build_jobs),
+                "-t",
+                "alive-tv",
+            ],
             cwd=self.config.alive2_build_dir,
             env=self._build_env(self.config.alive2_dir),
             timeout=self._BUILD_TIMEOUT,
@@ -351,7 +346,7 @@ class BuildManager:
             timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
-            ["cmake", "--build", ".", "-j"],
+            ["cmake", "--build", ".", "-j", str(self.config.build_jobs)],
             cwd=self.config.fuzz_tools_build_dir,
             env=self._build_env(self.config.llvm_project_dir),
             timeout=self._BUILD_TIMEOUT,

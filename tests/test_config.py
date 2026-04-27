@@ -18,7 +18,6 @@ class TestConfigFromEnv:
             Config.from_env()
 
     def test_minimal_env(self) -> None:
-        print(os.environ.items())
         with patch.dict(
             os.environ,
             {

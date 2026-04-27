@@ -53,7 +53,9 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
     builds_mock = MagicMock()
     toolchain = MagicMock()
     toolchain.baseline_revision = "rev"
-    builds_mock.prepare_pr_build = AsyncMock(return_value=(toolchain, True))
+    builds_mock.prepare_pr_worktree = AsyncMock(return_value=("rev", True))
+    builds_mock.build_pr_opt = AsyncMock()
+    builds_mock.toolchain_paths = MagicMock(return_value=toolchain)
 
     fuzzer_mock = MagicMock()
     fuzzer_mock.run = AsyncMock()
@@ -83,6 +85,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         service._pr_tasks = {}
         service._service_login = "service-login"
         service._status_callback = None
+        service._maybe_backoff = AsyncMock()
 
         await service._handle_pr_update(update)
 
@@ -142,7 +145,9 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
     builds_mock = MagicMock()
     toolchain = MagicMock()
     toolchain.baseline_revision = "rev"
-    builds_mock.prepare_pr_build = AsyncMock(return_value=(toolchain, False))
+    builds_mock.prepare_pr_worktree = AsyncMock(return_value=("rev", False))
+    builds_mock.build_pr_opt = AsyncMock()
+    builds_mock.toolchain_paths = MagicMock(return_value=toolchain)
 
     fuzz_mock = AsyncMock()
     fuzz_mock.return_value = MagicMock(reproducer=None)
@@ -175,6 +180,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         service._pr_tasks = {}
         service._service_login = "service-login"
         service._status_callback = None
+        service._maybe_backoff = AsyncMock()
 
         await service._handle_pr_update(update)
 

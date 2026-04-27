@@ -122,7 +122,10 @@ def minimal_execution_env(extra: Mapping[str, str] | None = None) -> dict[str, s
 
 def _limit_address_space(memory_limit_bytes: int):
     def apply_limit() -> None:
-        resource.setrlimit(resource.RLIMIT_AS, (memory_limit_bytes, memory_limit_bytes))
+        with contextlib.suppress(OSError, ValueError):
+            resource.setrlimit(
+                resource.RLIMIT_AS, (memory_limit_bytes, memory_limit_bytes)
+            )
 
     return apply_limit
 
@@ -157,6 +160,21 @@ _TRANSIENT_KEYWORDS = (
     "remote end closed",
     "no route to host",
 )
+
+
+def find_opencode() -> str | None:
+    import shutil
+
+    which = shutil.which("opencode")
+    if which:
+        return which
+    candidates = [
+        Path.home() / ".opencode" / "bin" / "opencode",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
 
 
 def is_transient_error(exc: BaseException) -> bool:

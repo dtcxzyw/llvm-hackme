@@ -48,34 +48,59 @@ stateDiagram-v2
 
     state PROCESSING {
         REVIEW : LLM review
-        BUILD : build & check
-        CHECK_OLD : check old reproducer
-        FUZZ : run fuzz
+        PREPARE : git worktree + patch apply
+        BUILD : cmake + ninja PR opt
+        CHECK_OLD : re-verify old reproducer
+        FUZZ : run fuzzer
         HACK : run hack agent
+        REPORT : update/create comment
         [*] --> REVIEW
-        REVIEW --> BUILD : accept
+        REVIEW --> PREPARE : accept
         REVIEW --> REJECTED : reject
+        PREPARE --> BUILD : worktree ready
+        PREPARE --> PENDING : transient failure
         BUILD --> CHECK_OLD : has old reproducer
-        BUILD --> FUZZ : no old reproducer,<br/>patch has tests
-        BUILD --> HACK : no old reproducer,<br/>source-only patch
+        BUILD --> FUZZ : no old reproducer
+        BUILD --> PENDING : transient failure
         CHECK_OLD --> BUG_FOUND : still reproduces
-        CHECK_OLD --> FUZZ : no longer reproduces,<br/>patch has tests
-        CHECK_OLD --> HACK : no longer reproduces,<br/>source-only patch
+        CHECK_OLD --> FUZZ : no longer reproduces
         FUZZ --> BUG_FOUND : found bug
         FUZZ --> HACK : no bug found
         HACK --> BUG_FOUND : found bug
         HACK --> PASSED : no bug found
+        BUG_FOUND --> REPORT : save & post comment
+        PASSED --> REPORT : update stale comment if any
+        REPORT --> [*]
     }
 
     PROCESSING --> REVIEW_REJECTED : LLM reject
-    PROCESSING --> BUG_FOUND : bug confirmed
-    PROCESSING --> PASSED : clean
-    PROCESSING --> PROCESSING : new head_sha<br/>cancels debounce
+    PROCESSING --> BUG_FOUND : bug confirmed + comment posted
+    PROCESSING --> PASSED : clean, no existing comment to update
+    PROCESSING --> PENDING : retry count >= 3
 
-    REVIEW_REJECTED --> IDLE : new head_sha
-    BUG_FOUND --> IDLE : new head_sha
-    PASSED --> IDLE : new head_sha
+    PENDING --> IDLE : pending_until expires + new head_sha
+    REVIEW_REJECTED --> IDLE : processed_at set (re-review on new head_sha)
+    BUG_FOUND --> IDLE : processed_at set
+    PASSED --> IDLE : processed_at set
 ```
+
+### Comment States
+
+The `CommentState` enum controls the message posted to GitHub:
+
+| State | When used |
+|-------|-----------|
+| `BUG_FOUND` | New crash or miscompilation regression found |
+| `STILL_REPRODUCES` | Previously reported bug still reproduces with current PR update |
+| `NO_ISSUE_FOUND_FOR_CURRENT_PATCH` | Previously reported bug no longer reproduces, and no new bug found |
+
+### Pending / Retry
+
+When a transient error occurs during processing (network failures, build errors, API timeouts), the PR is NOT marked as processed. Instead:
+
+1. `retry_count` is incremented.
+2. If `retry_count >= 3`, `pending_until` is set to 30 minutes in the future, and the scanner skips the PR until that time.
+3. On success (or non-transient final processing), `retry_count` is reset and `processed_at` is set.
 
 ## Deployment Constraints
 
@@ -125,9 +150,12 @@ This means after a crash, any PR whose `processed_at` is still null will be re-p
 
 All CMake builds use `RelWithDebInfo` (not `Release`) so opt crash stacktraces include debug symbols for meaningful diagnosis.
 
-`_build_lock` (an `asyncio.Lock`) protects the LLVM baseline from concurrent mutation. It is acquired during `update_baseline()` (in `_baseline_update_loop`) and during `prepare_pr_build()` (in `_handle_pr_update`), but released immediately after the build completes — it is NOT held during fuzzing, the hack agent run, verification, or reporting. This allows baseline updates to proceed while other PRs are being tested.
+`_build_lock` (an `asyncio.Lock`) protects the LLVM baseline git repository from concurrent mutation. It is acquired during:
 
-PR builds use a `git worktree` (`llvm-project-pr`) that is force-reset to the current baseline revision before each patch is applied.
+- **PR git operations**: `prepare_pr_worktree()` which calls `_sync_pr_worktree()` and `_apply_patch()`. PR builds (`build_pr_opt()` → `_configure_and_build_pr_opt()`) run **outside** the lock, allowing PR compilation to proceed in parallel with baseline updates.
+- **Baseline git operations**: `sync_baseline_sources()` (git fetch + checkout) runs under the lock. `build_baseline_toolchain()` (cmake + ninja for baseline opt, alive2, fuzz tools) runs **outside** the lock. If the baseline build fails, `rollback_sources()` re-acquires the lock to restore the previous git revisions, then `build_baseline_toolchain()` is called again to rebuild the old version.
+
+Build parallelism is controlled by `LLVM_HACKME_BUILD_JOBS` (default: 32). All `cmake --build` invocations use this value for `-j`.
 
 ## Pass Guessing
 

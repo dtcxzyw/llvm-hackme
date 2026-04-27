@@ -47,6 +47,7 @@ Optional variables (with defaults):
 | `LLVM_HACKME_WORK_DIR`                  | `work/llvm-hackme`         |
 | `LLVM_HACKME_STATE_DB`                  | `<work_dir>/state.db`      |
 | `LLVM_HACKME_SCAN_INTERVAL_SECONDS`     | `60`                       |
+| `LLVM_HACKME_SCAN_OVERLAP_SECONDS`     | `300`                      |
 | `LLVM_HACKME_DEBOUNCE_SECONDS`          | `300`                      |
 | `LLVM_HACKME_FUZZ_BUDGET_SECONDS`       | `600`                      |
 | `LLVM_HACKME_HACK_BUDGET_SECONDS`      | `1200`                     |

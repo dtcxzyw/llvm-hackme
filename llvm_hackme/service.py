@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from llvm_hackme.builds import BuildManager, ToolchainPaths
-from llvm_hackme.commands import is_transient_error, set_command_log_path
+from llvm_hackme.commands import find_opencode, is_transient_error, set_command_log_path
 from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
@@ -138,12 +138,27 @@ class HackmeService:
 
             async with self._build_lock:
                 try:
-                    toolchain, tests_applied = await self._builds.prepare_pr_build(
+                    (
+                        baseline_revision,
+                        full_patch_applied,
+                    ) = await self._builds.prepare_pr_worktree(
                         update.patch, pr.head_sha
                     )
                 except Exception:
-                    LOGGER.exception("Failed to build PR #%s", pr_number)
+                    LOGGER.exception("Failed to prepare PR worktree #%s", pr_number)
+                    transient = True
+                    await self._maybe_backoff(pr_number, pr)
                     return
+
+            try:
+                await self._builds.build_pr_opt()
+            except Exception:
+                LOGGER.exception("Failed to build PR opt #%s", pr_number)
+                transient = True
+                await self._maybe_backoff(pr_number, pr)
+                return
+
+            toolchain = self._builds.toolchain_paths(baseline_revision)
 
             stored = self._state.get_pull_state(pr_number)
             if stored.reproducer is not None:
@@ -182,10 +197,8 @@ class HackmeService:
                     pr_number,
                 )
 
-            has_tests = tests_applied
-
             verified: Reproducer | None = None
-            if has_tests:
+            if full_patch_applied:
                 fuzz_result = await self._fuzzer.run(
                     update.patch,
                     update.patch_sha256,
@@ -206,23 +219,7 @@ class HackmeService:
                         verified = None
 
             if verified is None:
-                hack_reproducer = await self._run_hack_agent(
-                    update, toolchain, pass_name
-                )
-                if hack_reproducer is not None:
-                    try:
-                        opt_args = _opt_args_from_command(hack_reproducer.command)
-                        verified = await verify_reproducer(
-                            hack_reproducer,
-                            toolchain,
-                            opt_args,
-                            memory_limit_bytes=self._config.opt_memory_limit_bytes,
-                        )
-                    except Exception:
-                        LOGGER.exception(
-                            "Hack verification failed for PR #%s", pr_number
-                        )
-                        verified = None
+                verified = await self._run_hack_agent(update, toolchain, pass_name)
 
             if verified is not None:
                 await self._emit_status(pr, "bug_found")
@@ -249,18 +246,7 @@ class HackmeService:
                 is_transient_error(exc) or (hasattr(exc, "retryable") and exc.retryable)  # type: ignore[union-attr]
             ):
                 transient = True
-                count = self._state.increment_retry(pr_number)
-                max_retries = 3
-                if count >= max_retries:
-                    pending_until = datetime.now(timezone.utc) + timedelta(minutes=30)
-                    self._state.set_pending_until(pr_number, pending_until)
-                    LOGGER.warning(
-                        "PR #%s failed %d times, pending until %s",
-                        pr_number,
-                        count,
-                        pending_until,
-                    )
-                    await self._emit_status(pr, "pending")
+                await self._maybe_backoff(pr_number, pr)
         finally:
             set_command_log_path(None)
             if not transient:
@@ -304,7 +290,7 @@ class HackmeService:
             p.unlink(missing_ok=True)
             os.mkfifo(str(p))
 
-        opencode_bin = _find_opencode()
+        opencode_bin = find_opencode()
         if opencode_bin is None:
             LOGGER.warning("opencode binary not found, skipping hack agent")
             self._cleanup_pipes(submit_pipe, response_pipe)
@@ -444,6 +430,19 @@ class HackmeService:
         except Exception:
             LOGGER.debug("Status callback failed", exc_info=True)
 
+    async def _maybe_backoff(self, pr_number: int, pr: PullRequest) -> None:
+        count = self._state.increment_retry(pr_number)
+        if count >= 3:
+            pending_until = datetime.now(timezone.utc) + timedelta(minutes=30)
+            self._state.set_pending_until(pr_number, pending_until)
+            LOGGER.warning(
+                "PR #%d failed %d times, pending until %s",
+                pr_number,
+                count,
+                pending_until,
+            )
+            await self._emit_status(pr, "pending")
+
     async def _baseline_update_loop(self) -> None:
         while True:
             try:
@@ -453,9 +452,30 @@ class HackmeService:
                 )
                 log_file.parent.mkdir(parents=True, exist_ok=True)
                 set_command_log_path(log_file)
+
                 async with self._build_lock:
-                    revision = await self._builds.update_baseline()
-                    LOGGER.info("Baseline updated to revision %s", revision)
+                    (
+                        old_llvm,
+                        old_alive2,
+                        revision,
+                    ) = await self._builds.sync_baseline_sources()
+
+                try:
+                    await self._builds.build_baseline_toolchain()
+                except Exception:
+                    LOGGER.exception(
+                        "Baseline build failed, rolling back %s → %s and %s → %s",
+                        self._config.llvm_project_dir,
+                        old_llvm,
+                        self._config.alive2_dir,
+                        old_alive2,
+                    )
+                    async with self._build_lock:
+                        await self._builds.rollback_sources(old_llvm, old_alive2)
+                    await self._builds.build_baseline_toolchain()
+                    raise
+
+                LOGGER.info("Baseline updated to revision %s", revision)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -467,8 +487,8 @@ class HackmeService:
 
 def _opt_args_from_command(command: list[str]) -> list[str]:
     for i, arg in enumerate(command):
-        if arg == "-S" and i + 4 < len(command):
-            return _normalize_opt_args(list(command[i + 4 :]))
+        if arg.endswith(".ll") and not arg.startswith("-"):
+            return _normalize_opt_args(list(command[i + 1 :]))
     return ["-passes=instcombine<no-verify-fixpoint>"]
 
 
@@ -498,21 +518,6 @@ def _valid_opt_args(opt_args: list[str]) -> bool:
     return all(_VALID_OPT_ARG_RE.match(arg) for arg in opt_args)
 
 
-def _find_opencode() -> str | None:
-    import shutil
-
-    which = shutil.which("opencode")
-    if which:
-        return which
-    candidates = [
-        Path.home() / ".opencode" / "bin" / "opencode",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return str(c)
-    return None
-
-
 async def _hack_verify(
     payload: dict,
     hack_dir: Path,
@@ -521,12 +526,6 @@ async def _hack_verify(
     *,
     memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
-    from llvm_hackme.verification import (
-        check_crash,
-        check_miscompilation,
-        is_alive2_approximation,
-    )
-
     ir_text = payload.get("ir", "")
     opt_args_str = payload.get("opt_args", "")
     kind_str = payload.get("kind", "crash")
@@ -551,73 +550,26 @@ async def _hack_verify(
     except ValueError:
         kind = BugKind.CRASH
 
-    if kind == BugKind.CRASH:
-        baseline_result = await check_crash(
-            toolchain.baseline_opt,
-            src_file,
-            opt_args,
-            memory_limit_bytes=memory_limit_bytes,
-        )
-        if baseline_result is not None:
-            return None
-        pr_result = await check_crash(
-            toolchain.pr_opt,
-            src_file,
-            opt_args,
-            memory_limit_bytes=memory_limit_bytes,
-        )
-        if pr_result is None:
-            return None
-        return Reproducer(
-            kind=BugKind.CRASH,
-            source_path=src_file,
-            command=[
-                str(toolchain.pr_opt),
-                "-S",
-                "-o",
-                "/dev/null",
-                str(src_file),
-                *opt_args,
-            ],
-            baseline_revision=toolchain.baseline_revision,
-            pr_head_sha=update.pr.head_sha,
-            patch_sha256=update.patch_sha256,
-            stacktrace=pr_result.stacktrace,
-            source_content=ir_text,
-        )
-    else:
-        baseline_result = await check_miscompilation(
-            toolchain.baseline_opt,
-            toolchain.alive_tv,
-            src_file,
-            opt_args,
-            memory_limit_bytes=memory_limit_bytes,
-        )
-        if baseline_result is not None:
-            return None
-        pr_result = await check_miscompilation(
-            toolchain.pr_opt,
-            toolchain.alive_tv,
-            src_file,
-            opt_args,
-            memory_limit_bytes=memory_limit_bytes,
-        )
-        if pr_result is None or is_alive2_approximation(pr_result):
-            return None
-        return Reproducer(
-            kind=BugKind.MISCOMPILATION,
-            source_path=src_file,
-            command=[
-                str(toolchain.pr_opt),
-                "-S",
-                "-o",
-                "/dev/null",
-                str(src_file),
-                *opt_args,
-            ],
-            baseline_revision=toolchain.baseline_revision,
-            pr_head_sha=update.pr.head_sha,
-            patch_sha256=update.patch_sha256,
-            alive2_counterexample=pr_result.alive2_output,
-            source_content=ir_text,
-        )
+    candidate = Reproducer(
+        kind=kind,
+        source_path=src_file,
+        command=[
+            str(toolchain.pr_opt),
+            "-S",
+            "-o",
+            "/dev/null",
+            str(src_file),
+            *opt_args,
+        ],
+        baseline_revision=toolchain.baseline_revision,
+        pr_head_sha=update.pr.head_sha,
+        patch_sha256=update.patch_sha256,
+        source_content=ir_text,
+    )
+
+    return await verify_reproducer(
+        candidate,
+        toolchain,
+        opt_args,
+        memory_limit_bytes=memory_limit_bytes,
+    )

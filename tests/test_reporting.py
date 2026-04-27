@@ -370,4 +370,8 @@ class TestReportResult:
 
         await report_result(github, state, update, None, "rev123", "service-login")
 
-        github.update_issue_comment.assert_not_called()
+        github.update_issue_comment.assert_called_once()
+        call_args, _ = github.update_issue_comment.call_args
+        assert call_args[0] == 5
+        assert "no_issue_found_for_current_patch" in call_args[1]
+        state.clear_reproducer.assert_called_once_with(1)

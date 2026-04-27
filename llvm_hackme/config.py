@@ -46,6 +46,7 @@ class Config:
     max_patch_chunks: int
     opt_memory_limit_bytes: int
     max_fuzz_parallelism: int
+    build_jobs: int
 
     @property
     def llvm_project_dir(self) -> Path:
@@ -125,4 +126,5 @@ class Config:
                 "LLVM_HACKME_OPT_MEMORY_LIMIT_BYTES", 1024 * 1024 * 1024
             ),
             max_fuzz_parallelism=_int_env("LLVM_HACKME_MAX_FUZZ_PARALLELISM", 1),
+            build_jobs=_int_env("LLVM_HACKME_BUILD_JOBS", 32),
         )

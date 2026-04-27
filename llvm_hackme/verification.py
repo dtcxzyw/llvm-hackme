@@ -290,6 +290,7 @@ async def _verify_regression_miscompilation(
             )
         else:
             LOGGER.warning("PR Alive2 passed during re-verification of %s", src)
+        return None
 
     LOGGER.info("Verified miscompilation reproducer: %s", src)
     return Reproducer(
