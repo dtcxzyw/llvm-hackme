@@ -413,6 +413,8 @@ def _normalize_opt_args(opt_args: list[str]) -> list[str]:
 
 
 def _fixup_instcombine(arg: str) -> str:
+    if arg == "instcombine":
+        return "instcombine<no-verify-fixpoint>"
     if arg.startswith("-passes="):
         return _replace_pass(arg, "instcombine", "instcombine<no-verify-fixpoint>")
     return arg
