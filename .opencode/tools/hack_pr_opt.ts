@@ -1,37 +1,38 @@
 import path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 
+const ENOSPC = 28
+
 export default tool({
   description:
-    "Run the PR (patched) opt on an IR file.  Returns stdout, stderr, exit code, and whether it crashed.",
+    "Run the PR (patched) opt on LLVM IR text.  Returns exit code, stderr, and whether it crashed.",
   args: {
-    ir_path: tool.schema
+    ir: tool.schema
       .string()
-      .describe("Relative path to the .ll file inside the hack work directory"),
+      .describe("Full LLVM IR text of the module to test"),
     opt_args: tool.schema
       .string()
       .describe("Space-separated opt arguments, e.g. '-passes=instcombine<no-verify-fixpoint>'"),
   },
   async execute(args) {
     const ctx = loadContext()
-    const resolved = resolveConfined(args.ir_path, ctx.work_dir)
     const extra = parseArgs(args.opt_args)
+
+    const tmp = writeTemp(ctx.work_dir, args.ir)
+    if (typeof tmp === "string") return tmp
 
     const cmd: string[] = []
     if (ctx.opt_memory_limit_bytes) {
       const prlimit = Bun.which("prlimit")
-      if (prlimit) {
-        cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
-      }
+      if (prlimit) cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
     }
-    cmd.push(ctx.pr_opt, "-S", "-o", "/dev/null", resolved, ...extra)
+    cmd.push(ctx.pr_opt, "-S", "-o", "/dev/null", tmp, ...extra)
 
-    const proc = Bun.spawnSync({
-      cmd,
-      env: minimalEnv(),
-      stdout: "pipe",
-      stderr: "pipe",
-    })
+    const proc = Bun.spawnSync({ cmd, env: minimalEnv(), stdout: "pipe", stderr: "pipe" })
+    try { Bun.file(tmp).delete() } catch {}
+    if (proc.exitCode === ENOSPC) {
+      return JSON.stringify({ error: "disk_full", crashed: false })
+    }
     const stdout = new TextDecoder().decode(proc.stdout)
     const stderr = new TextDecoder().decode(proc.stderr)
     const crashed = proc.exitCode !== 0
@@ -51,14 +52,15 @@ function loadContext() {
   return JSON.parse(new TextDecoder().decode(Bun.file(f).bytes()))
 }
 
-function resolveConfined(rel: string, base: string): string {
-  if (!rel || !base) throw new Error("ir_path and work_dir are required")
-  const resolved = path.resolve(base, rel)
-  const sep = path.sep
-  if (resolved !== base && !resolved.startsWith(base + sep)) {
-    throw new Error(`Path "${rel}" escapes work directory`)
+function writeTemp(workDir: string, ir: string): string | undefined {
+  const f = path.join(workDir, `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ll`)
+  try {
+    Bun.writeSync(f, ir)
+    return f
+  } catch (e: any) {
+    if (e?.code === "ENOSPC") return "disk_full"
+    return `Failed to write temp file: ${e}`
   }
-  return resolved
 }
 
 function parseArgs(raw: string): string[] {

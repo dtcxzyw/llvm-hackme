@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from llvm_hackme.builds import BuildManager, ToolchainPaths
@@ -271,8 +272,10 @@ class HackmeService:
         )
 
         LOGGER.info("Launching hack agent for PR #%s", update.pr.number)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        log_name = f"opencode-pr{update.pr.number}-{ts}.log"
         opencode_log = open(  # noqa: ASYNC230,SIM115 — fd for subprocess
-            str(hack_dir / "opencode.log"), "w"
+            str(hack_dir / log_name), "w"
         )
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -401,8 +404,25 @@ class HackmeService:
 def _opt_args_from_command(command: list[str]) -> list[str]:
     for i, arg in enumerate(command):
         if arg == "-S" and i + 4 < len(command):
-            return list(command[i + 4 :])
-    return ["-passes=default<O3>"]
+            return _normalize_opt_args(list(command[i + 4 :]))
+    return ["-passes=instcombine<no-verify-fixpoint>"]
+
+
+def _normalize_opt_args(opt_args: list[str]) -> list[str]:
+    return [_fixup_instcombine(a) for a in opt_args]
+
+
+def _fixup_instcombine(arg: str) -> str:
+    if arg.startswith("-passes="):
+        return _replace_pass(arg, "instcombine", "instcombine<no-verify-fixpoint>")
+    return arg
+
+
+def _replace_pass(passes_arg: str, old: str, new: str) -> str:
+    prefix = passes_arg.removeprefix("-passes=")
+    parts = prefix.split(",")
+    fixed = [new if p == old else p for p in parts]
+    return "-passes=" + ",".join(fixed)
 
 
 def _find_opencode() -> str | None:
@@ -437,7 +457,11 @@ async def _hack_verify(
     if not ir_text:
         return None
 
-    opt_args = opt_args_str.split() if opt_args_str.strip() else ["-passes=default<O3>"]
+    opt_args = _normalize_opt_args(
+        opt_args_str.split()
+        if opt_args_str.strip()
+        else ["-passes=instcombine<no-verify-fixpoint>"]
+    )
 
     src_file = hack_dir / "hack-reproducer.ll"
     src_file.write_text(ir_text)

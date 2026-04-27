@@ -70,11 +70,11 @@ Call `hack_context` first.  It returns a JSON object with these fields:
 
 ## Tool Reference
 
-All tool arguments that accept file paths (`ir_path`, `baseline_ir_path`,
-`pr_ir_path`) take **paths relative to `work_dir`**.  Write your `.ll` files
-into `work_dir` (via the built-in `write` tool) and pass the relative filename.
+All hack tools accept IR as a **string** (the full LLVM IR text).  Do NOT
+pass file paths — write the IR text directly.  Tools create temp files internally
+and clean them up automatically.
 
-**`hack_pr_opt(ir_path, opt_args)`** — runs the PR `opt` on `ir_path`.
+**`hack_pr_opt(ir, opt_args)`** — runs the PR `opt` on `ir`.
 `opt_args` is a space-separated string of opt flags, e.g. `-passes=instcombine`.
 Returns JSON:
 ```
@@ -83,12 +83,12 @@ Returns JSON:
 - `crashed: true` means `exit_code != 0` (crash, assertion failure, or OOM kill).
 - `stdout`/`stderr` are truncated to the last 8000 characters.
 
-**`hack_baseline_opt(ir_path, opt_args)`** — same as above but uses baseline `opt`.
+**`hack_baseline_opt(ir, opt_args)`** — same as above but uses baseline `opt`.
 You *may* use this to sanity-check your IR, but the server-side submit verification
 already performs baseline regression checking.  Do not rely on it to confirm a
 regression; submit and let the server decide.
 
-**`hack_alive2(ir_path, opt_args)`** — runs baseline opt, PR opt, and alive2 on
+**`hack_alive2(ir, opt_args)`** — runs baseline opt, PR opt, and alive2 on
 one IR file.  Internally compiles with both opts and compares the results.
 Returns JSON:
 ```
