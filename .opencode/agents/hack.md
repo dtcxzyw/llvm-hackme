@@ -52,16 +52,55 @@ an acceptable outcome.  Do NOT run to the timeout doing busy-work.
 - **`llvm-project`** — the baseline LLVM source tree.  Use `read` here to inspect
   the original source code of passes and analysis utilities.
 
-## Tool Timeouts
+## Context Fields
 
-All tool invocations (`hack_pr_opt`, `hack_baseline_opt`, `hack_alive2`, `hack_z3`)
-have internal timeouts.  If a tool times out or returns an error:
+Call `hack_context` first.  It returns a JSON object with these fields:
 
-- **Do NOT retry** with the same inputs.  The timeout/error is deterministic.
-- Move on: simplify the IR, try a different approach, or switch to another theory.
-- If `hack_alive2` errors out (not a timeout, but an internal error like "Unsupported"),
-  this is NOT a miscompilation — alive2 cannot analyze that IR.  Use `hack_pr_opt`
-  to check for crashes instead.
+- `patch_file` — absolute path to the raw diff the PR applies
+- `pass_name` — **hint** for the opt pipeline (see below)
+- `work_dir` — scratch directory for temporary files; `ir_path` arguments to opt
+  and alive2 tools are resolved relative to this directory
+- `baseline_opt` — path to the baseline (unpatched) `opt` binary
+- `pr_opt` — path to the PR (patched) `opt` binary
+- `alive_tv` — path to the `alive-tv` binary
+- `baseline_src_dir` — root of the baseline LLVM source tree
+- `pr_src_dir` — root of the PR LLVM source tree (only source files — see layout above)
+- `opt_memory_limit_bytes` — memory limit applied to opt/alive2 subprocesses
+
+## Tool Reference
+
+All tool arguments that accept file paths (`ir_path`, `baseline_ir_path`,
+`pr_ir_path`) take **paths relative to `work_dir`**.  Write your `.ll` files
+into `work_dir` (via the built-in `write` tool) and pass the relative filename.
+
+**`hack_pr_opt(ir_path, pass_name)`** — runs the PR `opt` on `ir_path`.
+Returns JSON:
+```
+{exit_code, signal, crashed, stdout, stderr}
+```
+- `crashed: true` means `exit_code != 0` (crash, assertion failure, or OOM kill).
+- `stdout`/`stderr` are truncated to the last 8000 characters.
+
+**`hack_baseline_opt(ir_path, pass_name)`** — same as above but uses baseline `opt`.
+You *may* use this to sanity-check your IR, but the server-side submit verification
+already performs baseline regression checking.  Do not rely on it to confirm a
+regression; submit and let the server decide.
+
+**`hack_alive2(baseline_ir_path, pr_ir_path)`** — runs alive2 to compare two
+optimized IR files.  Returns JSON:
+```
+{exit_code, correct, miscompile, counterexample}
+```
+- `correct: true` — transformation is correct (no bug).
+- `miscompile: true` — alive2 found a miscompilation; `counterexample` has details.
+- Neither true — alive2 could not determine correctness (timeout, unsupported IR).
+
+**`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
+Takes a raw SMT-LIB2 string.  Returns JSON:
+```
+{sat, unsat, unknown, timeout, output}
+```
+Use `sat` to get a counterexample model from the `output` field.
 
 ## pass_name
 
@@ -75,20 +114,96 @@ for server-side verification AND the final bug report.  Choose carefully.
 
 ## Workflow
 
-1. **Read the context** — call `hack_context` to get all paths and the hint.
+### 1. Read the context
 
-2. **Analyze the patch** — read the diff file.  Identify every changed function.
-   Compare the baseline and PR source code with `read`.  Annotate preconditions
-   and postconditions for each changed hunk using Hoare-logic style.
+Call `hack_context` to get all paths and the hint.
 
-3. **Construct a test case** — build a minimal, self-contained LLVM IR module that
-   triggers the changed code path.  Prefer mutating existing tests from the diff;
-   write new IR from scratch when necessary.
+### 2. Analyze the patch with Hoare Logic
 
-4. **Test the candidate** — run `hack_pr_opt` (and optionally `hack_alive2`)
-   to confirm the bug on your own before submitting.
+Read the diff file.  Identify every changed function.  Compare the baseline and PR
+source code with the `read` tool.  For each changed hunk, annotate preconditions
+and postconditions:
 
-5. **Submit** — call `hack_submit(ir, pass_name, kind, description)`.
+**Explicit casts — the precondition is a type check:**
+
+```
+// pre-condition: isa<Instruction>(V)
+auto *I = cast<Instruction>(V);
+```
+
+**Conditional casts — precondition is guarded by `if`:**
+
+```
+if (auto *I = cast<Instruction>(V)) {
+// pre-condition: isa<Instruction>(V)
+}
+```
+
+**Bit-width assumptions — precondition from APInt semantics:**
+
+```
+APInt A = ...;
+// pre-condition: A.isIntN(64);
+uint64_t ShAmt = A.getZExtValue();
+```
+
+**Pointer dereferences — precondition is non-null:**
+
+```
+Value *Op = I->getOperand(0);
+// pre-condition: I != nullptr
+// pre-condition: I->getNumOperands() > 0
+```
+
+**Pattern-match guards — precondition is the match result:**
+
+```
+if (match(V, m_Add(m_Value(X), m_ConstantInt(C)))) {
+// pre-condition: V matches add with constant RHS
+```
+
+Do **not** guess preconditions blindly.  Use the `read` tool to look up the actual
+source code (baseline and PR) and confirm each condition.  For `&&` / `||`
+short-circuit logic, break each clause apart and analyze independently — the patch
+may have reordered or removed a guard that previously short-circuited a dangerous
+code path.
+
+### 3. Search for counterexamples
+
+When a precondition involves numeric constraints (bit-widths, ranges, overflow),
+formulate a SMT-LIB2 query and use `hack_z3` to search for violating inputs.
+
+Example — checking if `(X + Y)` overflows given `X, Y` are `3`-bit signed:
+
+```smt2
+(declare-const X (_ BitVec 3))
+(declare-const Y (_ BitVec 3))
+(assert (not (bvult (bvadd X Y) #b100)))
+(check-sat)
+(get-model)
+```
+
+### 4. Construct a test case
+
+Build a minimal, self-contained LLVM IR module that triggers the changed code path.
+Prefer mutating existing tests from the diff; write new IR from scratch when necessary.
+Tweak constants, shuffle operands, change types, introduce corner-case values, and
+add/remove metadata or poison-generating flags.
+
+### 5. Test the candidate
+
+Run `hack_pr_opt` (and optionally `hack_alive2`) to confirm the bug before submitting.
+
+### 6. Submit
+
+Call `hack_submit(ir, pass_name, kind, description)`.  If the server rejects your
+submission, read the rejection reason carefully:
+
+- **"baseline also crashes/miscompiles"** — the bug is pre-existing, not a regression.
+  Find a different candidate.
+- **"PR opt did not crash/miscompile"** — your IR does not trigger the bug.
+  Refine the test case or try a different pass_name.
+- Other reasons — fix the IR or description as indicated and resubmit.
 
 ## Crash Heuristics
 
@@ -123,6 +238,16 @@ for server-side verification AND the final bug report.  Choose carefully.
    poison or UB that `A` did not have.  Look for `replaceAllUsesWith` versus
    single-use optimizations: the replacement must be safe for **every** user, not
    just the current one.
+
+## Tool Timeouts
+
+All tool invocations have internal timeouts.  If a tool times out or returns an error:
+
+- **Do NOT retry** with the same inputs.  The timeout/error is deterministic.
+- Move on: simplify the IR, try a different approach, or switch to another theory.
+- If `hack_alive2` errors out (not a timeout, but an internal error like "Unsupported"),
+  this is NOT a miscompilation — alive2 cannot analyze that IR.  Use `hack_pr_opt`
+  to check for crashes instead.
 
 ## alive2 Limitations
 
