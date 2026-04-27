@@ -157,10 +157,10 @@ async def report_result(
 
         old_reproducer = stored.reproducer
         if reproducer is not None:
+            state.save_reproducer(pr_update.pr.number, reproducer)
             if old_reproducer is not None and old_reproducer.kind == reproducer.kind:
                 body = make_comment_body(CommentState.STILL_REPRODUCES, reproducer)
                 await github.update_issue_comment(existing.id, body)
-                state.save_reproducer(pr_update.pr.number, reproducer)
                 LOGGER.info(
                     "Updated existing comment for PR #%s (still_reproduces)",
                     pr_update.pr.number,
@@ -169,32 +169,41 @@ async def report_result(
 
             body = make_comment_body(CommentState.BUG_FOUND, reproducer)
             updated = await github.update_issue_comment(existing.id, body)
-            state.save_reproducer(pr_update.pr.number, reproducer)
             LOGGER.info(
                 "Updated existing comment for PR #%s (bug_found - new reproducer)",
                 pr_update.pr.number,
             )
 
             if pr_update.pr.author_login != service_login:
-                await github.create_request_changes_review(
-                    pr_update.pr.number,
-                    REVIEW_REQUEST_BODY.format(comment_url=updated.html_url),
-                )
-                LOGGER.info("Requested changes for PR #%s", pr_update.pr.number)
+                try:
+                    await github.create_request_changes_review(
+                        pr_update.pr.number,
+                        REVIEW_REQUEST_BODY.format(comment_url=updated.html_url),
+                    )
+                    LOGGER.info("Requested changes for PR #%s", pr_update.pr.number)
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to request changes for PR #%s", pr_update.pr.number
+                    )
         return
 
     if reproducer is None:
         return
 
     body = make_comment_body(CommentState.BUG_FOUND, reproducer)
+    state.save_reproducer(pr_update.pr.number, reproducer)
     created = await github.create_issue_comment(pr_update.pr.number, body)
     state.save_comment(pr_update.pr.number, created.id, created.html_url)
-    state.save_reproducer(pr_update.pr.number, reproducer)
     LOGGER.info("Created new comment for PR #%s (bug_found)", pr_update.pr.number)
 
     if pr_update.pr.author_login != service_login:
-        await github.create_request_changes_review(
-            pr_update.pr.number,
-            REVIEW_REQUEST_BODY.format(comment_url=created.html_url),
-        )
-        LOGGER.info("Requested changes for PR #%s", pr_update.pr.number)
+        try:
+            await github.create_request_changes_review(
+                pr_update.pr.number,
+                REVIEW_REQUEST_BODY.format(comment_url=created.html_url),
+            )
+            LOGGER.info("Requested changes for PR #%s", pr_update.pr.number)
+        except Exception:
+            LOGGER.exception(
+                "Failed to request changes for PR #%s", pr_update.pr.number
+            )

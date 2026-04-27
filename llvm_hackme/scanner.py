@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import datetime, timezone
 
 from llvm_hackme.config import Config
 from llvm_hackme.github import GitHubClient
@@ -46,6 +47,11 @@ class PullRequestScanner:
                 stored.head_sha == pr.head_sha
                 and stored.patch_sha256 == patch_sha256
                 and stored.processed_at is not None
+            ):
+                continue
+
+            if stored.pending_until is not None and stored.pending_until > datetime.now(
+                timezone.utc
             ):
                 continue
 

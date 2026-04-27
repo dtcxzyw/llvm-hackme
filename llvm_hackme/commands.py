@@ -104,3 +104,43 @@ _DISK_FULL_RE = re.compile(
 
 def is_disk_full_output(text: str) -> bool:
     return bool(_DISK_FULL_RE.search(text))
+
+
+_TRANSIENT_KEYWORDS = (
+    "connection refused",
+    "connection reset",
+    "connection timed out",
+    "name or service not known",
+    "network is unreachable",
+    "temporary failure",
+    "could not resolve host",
+    "connection closed",
+    "broken pipe",
+    "socket error",
+    "service unavailable",
+    "remote end closed",
+    "no route to host",
+)
+
+
+def is_transient_error(exc: BaseException) -> bool:
+    if isinstance(exc, asyncio.TimeoutError):
+        return True
+    exc_type = type(exc).__name__
+    network_types = {
+        "ConnectError",
+        "ConnectTimeout",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "PoolTimeout",
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectionError",
+        "TimeoutError",
+        "Timeout",
+    }
+    if exc_type in network_types:
+        return True
+    msg = str(exc).lower()
+    return any(kw in msg for kw in _TRANSIENT_KEYWORDS)

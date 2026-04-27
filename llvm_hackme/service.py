@@ -5,11 +5,13 @@ import contextlib
 import json
 import logging
 import os
+import sys
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from llvm_hackme.builds import BuildManager, ToolchainPaths
+from llvm_hackme.commands import is_transient_error
 from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
@@ -97,6 +99,7 @@ class HackmeService:
     async def _handle_pr_update(self, update: PullRequestUpdate) -> None:
         pr = update.pr
         pr_number = pr.number
+        transient = False
         try:
             LOGGER.info(
                 "PR #%s update queued, waiting %s debounce seconds",
@@ -155,6 +158,7 @@ class HackmeService:
                         "PR #%s: existing reproducer still reproduces", pr_number
                     )
                     await self._emit_status(pr, "bug_found")
+                    self._state.save_reproducer(pr_number, verified_existing)
                     await report_result(
                         self._github,
                         self._state,
@@ -212,10 +216,9 @@ class HackmeService:
                         )
                         verified = None
 
-            baseline_revision = toolchain.baseline_revision
-
             if verified is not None:
                 await self._emit_status(pr, "bug_found")
+                self._state.save_reproducer(pr_number, verified)
             else:
                 await self._emit_status(pr, "passed")
 
@@ -224,7 +227,7 @@ class HackmeService:
                 self._state,
                 update,
                 verified,
-                baseline_revision,
+                toolchain.baseline_revision,
                 self._service_login,
             )
 
@@ -232,9 +235,28 @@ class HackmeService:
         except asyncio.CancelledError:
             raise
         except Exception:
+            exc = sys.exc_info()[1]
             LOGGER.exception("Unhandled error processing PR #%s", pr_number)
+            if exc is not None and (
+                is_transient_error(exc) or (hasattr(exc, "retryable") and exc.retryable)  # type: ignore[union-attr]
+            ):
+                transient = True
+                count = self._state.increment_retry(pr_number)
+                max_retries = 3
+                if count >= max_retries:
+                    pending_until = datetime.now(timezone.utc) + timedelta(minutes=30)
+                    self._state.set_pending_until(pr_number, pending_until)
+                    LOGGER.warning(
+                        "PR #%s failed %d times, pending until %s",
+                        pr_number,
+                        count,
+                        pending_until,
+                    )
+                    await self._emit_status(pr, "pending")
         finally:
-            self._state.mark_processed(pr_number)
+            if not transient:
+                self._state.reset_retry(pr_number)
+                self._state.mark_processed(pr_number)
 
     async def _run_hack_agent(
         self,

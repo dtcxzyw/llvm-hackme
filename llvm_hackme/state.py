@@ -20,6 +20,8 @@ class StoredPullState:
     comment_url: str | None
     reproducer: Reproducer | None
     processed_at: datetime | None
+    retry_count: int
+    pending_until: datetime | None
 
 
 class StateStore:
@@ -64,6 +66,14 @@ class StateStore:
                 self._conn.execute(
                     "ALTER TABLE pull_state ADD COLUMN processed_at TEXT"
                 )
+            with contextlib.suppress(sqlite3.OperationalError):
+                self._conn.execute(
+                    "ALTER TABLE pull_state ADD COLUMN retry_count INTEGER DEFAULT 0"
+                )
+            with contextlib.suppress(sqlite3.OperationalError):
+                self._conn.execute(
+                    "ALTER TABLE pull_state ADD COLUMN pending_until TEXT"
+                )
 
     def get_scan_watermark(self) -> datetime | None:
         value = self._get_metadata("scan_watermark")
@@ -86,6 +96,8 @@ class StateStore:
                 comment_url=None,
                 reproducer=None,
                 processed_at=None,
+                retry_count=0,
+                pending_until=None,
             )
         processed_at = None
         raw_processed = (
@@ -93,6 +105,13 @@ class StateStore:
         )
         if raw_processed:
             processed_at = datetime.fromisoformat(raw_processed)
+        retry_count = int(row["retry_count"]) if "retry_count" in row.keys() else 0  # noqa: SIM118
+        pending_until = None
+        raw_pending = (
+            row["pending_until"] if "pending_until" in row.keys() else None  # noqa: SIM118
+        )
+        if raw_pending:
+            pending_until = datetime.fromisoformat(raw_pending)
         return StoredPullState(
             pr_number=pr_number,
             head_sha=row["head_sha"],
@@ -101,6 +120,8 @@ class StateStore:
             comment_url=row["comment_url"],
             reproducer=_decode_reproducer(row["reproducer_json"]),
             processed_at=processed_at,
+            retry_count=retry_count,
+            pending_until=pending_until,
         )
 
     def record_pr_update(
@@ -188,6 +209,45 @@ class StateStore:
                     datetime.utcnow().isoformat(),
                     pr_number,
                 ),
+            )
+
+    def increment_retry(self, pr_number: int) -> int:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO pull_state (pr_number, retry_count, updated_at)
+                VALUES (?, 1, ?)
+                ON CONFLICT(pr_number) DO UPDATE SET
+                    retry_count = retry_count + 1,
+                    updated_at = excluded.updated_at
+                """,
+                (pr_number, datetime.utcnow().isoformat()),
+            )
+            row = self._conn.execute(
+                "SELECT retry_count FROM pull_state WHERE pr_number = ?",
+                (pr_number,),
+            ).fetchone()
+        return int(row["retry_count"]) if row else 1
+
+    def reset_retry(self, pr_number: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                UPDATE pull_state
+                SET retry_count = 0, pending_until = NULL
+                WHERE pr_number = ?
+                """,
+                (pr_number,),
+            )
+
+    def set_pending_until(self, pr_number: int, pending_until: datetime) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                UPDATE pull_state SET pending_until = ?, updated_at = ?
+                WHERE pr_number = ?
+                """,
+                (pending_until.isoformat(), datetime.utcnow().isoformat(), pr_number),
             )
 
     def _get_metadata(self, key: str) -> str | None:

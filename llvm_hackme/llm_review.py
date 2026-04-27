@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 
 from openai import AsyncOpenAI
 
+from llvm_hackme.commands import is_transient_error
 from llvm_hackme.config import Config
 from llvm_hackme.models import ReviewDecision
 
@@ -113,6 +115,8 @@ class OpenAIPatchReviewer:
             LOGGER.exception(
                 "OpenAI API call failed for chunk %s/%s", chunk_idx, chunk_total
             )
+            if is_transient_error(sys.exc_info()[1]):
+                raise
             return ReviewDecision(
                 accepted=False,
                 reason=f"OpenAI API call failed for chunk {chunk_idx}/{chunk_total}",
