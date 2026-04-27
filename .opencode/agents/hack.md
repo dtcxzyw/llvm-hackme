@@ -328,6 +328,22 @@ If the patch replaces expression `A` with `B` based on `simplify(A) == simplify(
 `simplify(B)` introduces poison/UB that `A` did not have.  Look for `replaceAllUsesWith` versus
 single-use optimizations: the replacement must be safe for **every** user, not just the current one.
 
+### 9. In-Place Modification
+
+When the patch modifies an existing instruction in-place — via `setOperand()`, `mutateType()`,
+or any method that changes the instruction's semantics without creating a new `Instruction` —
+the old flags and metadata **persist** on the modified instruction.  You MUST check:
+
+- Does the new operand/type satisfy the existing flags?  If not, drop them.
+  Example: `setOperand(0, NewOp)` on `or disjoint` — if `NewOp` may share bits, drop `disjoint`.
+- Does the new operand satisfy existing metadata constraints?
+  Example: narrowing the type of an `add nsw` to a smaller width that may overflow — drop `nsw`.
+- Could poison that was previously impossible now become possible?
+  Example: replacing a `zext nneg` operand with one that may be negative — drop `nneg`.
+
+The principle: **any in-place mutation must re-validate all flags and attributes on the instruction.**
+If the patch mutates an instruction without auditing its flags/metadata, look for counterexamples.
+
 ## Tool Timeouts
 
 All tool invocations have internal timeouts.  If a tool times out or returns an error:
