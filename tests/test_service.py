@@ -82,8 +82,9 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         service._fuzzer = fuzzer_mock
         service._build_lock = MagicMock()
         service._build_lock.__aenter__ = AsyncMock()
-        service._build_lock.__aexit__ = AsyncMock()
+        service._build_lock.__aexit__ = AsyncMock(return_value=False)
         service._pr_tasks = {}
+        service._pr_in_build = set()
         service._service_login = "service-login"
         service._status_callback = None
         service._maybe_backoff = AsyncMock()
@@ -178,8 +179,9 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         service._run_hack_agent = AsyncMock(return_value=None)
         service._build_lock = MagicMock()
         service._build_lock.__aenter__ = AsyncMock()
-        service._build_lock.__aexit__ = AsyncMock()
+        service._build_lock.__aexit__ = AsyncMock(return_value=False)
         service._pr_tasks = {}
+        service._pr_in_build = set()
         service._service_login = "service-login"
         service._status_callback = None
         service._maybe_backoff = AsyncMock()

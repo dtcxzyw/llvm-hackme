@@ -71,6 +71,7 @@ class HackmeService:
         self._fuzzer = FuzzRunner(config)
         self._build_lock = asyncio.Lock()
         self._pr_tasks: dict[int, asyncio.Task[object]] = {}
+        self._pr_in_build: set[int] = set()
         self._service_login = service_login
         self._status_callback = status_callback
 
@@ -106,6 +107,13 @@ class HackmeService:
         pr_number = update.pr.number
         existing = self._pr_tasks.pop(pr_number, None)
         if existing is not None and not existing.done():
+            if pr_number in self._pr_in_build:
+                LOGGER.info(
+                    "PR #%s is currently in build phase, skipping cancel",
+                    pr_number,
+                )
+                self._pr_tasks[pr_number] = existing
+                return
             existing.cancel()
             LOGGER.info(
                 "Cancelled existing task for PR #%s (new update arrived)", pr_number
@@ -185,100 +193,118 @@ class HackmeService:
                 await self._emit_status(pr, "passed")
                 return
 
+            await self._emit_status(pr, "waiting_for_build_lock")
             async with self._build_lock:
+                self._pr_in_build.add(pr_number)
                 try:
-                    (
-                        baseline_revision,
-                        full_patch_applied,
-                    ) = await self._builds.prepare_pr_worktree(
-                        update.patch, pr.head_sha
-                    )
-                except Exception:
-                    _log_command_error(
-                        sys.exc_info()[1], f"Failed to prepare PR worktree #{pr_number}"
-                    )
-                    LOGGER.exception("Failed to prepare PR worktree #%s", pr_number)
-                    transient = True
-                    await self._maybe_backoff(pr_number, pr)
-                    return
-
-                try:
-                    await self._builds.build_pr_opt()
-                except Exception:
-                    _log_command_error(
-                        sys.exc_info()[1], f"Failed to build PR opt #{pr_number}"
-                    )
-                    LOGGER.exception("Failed to build PR opt #%s", pr_number)
-                    transient = True
-                    await self._maybe_backoff(pr_number, pr)
-                    return
-
-                toolchain = self._builds.toolchain_paths(baseline_revision)
-
-                stored = self._state.get_pull_state(pr_number)
-                if stored.reproducer is not None:
+                    await self._emit_status(pr, "building")
                     try:
-                        stored_opt = _opt_args_from_command(stored.reproducer.command)
-                        verified_existing = await verify_reproducer(
-                            stored.reproducer,
-                            toolchain,
-                            stored_opt,
-                            memory_limit_bytes=self._config.opt_memory_limit_bytes,
+                        (
+                            baseline_revision,
+                            full_patch_applied,
+                        ) = await self._builds.prepare_pr_worktree(
+                            update.patch, pr.head_sha
                         )
                     except Exception:
-                        LOGGER.exception(
-                            "Re-verification of existing reproducer failed for PR #%s",
-                            pr_number,
+                        _log_command_error(
+                            sys.exc_info()[1],
+                            f"Failed to prepare PR worktree #{pr_number}",
                         )
-                        verified_existing = None
-                    if verified_existing is not None:
-                        LOGGER.info(
-                            "PR #%s: existing reproducer still reproduces", pr_number
-                        )
-                        await self._emit_status(pr, "bug_found")
-                        self._state.save_reproducer(pr_number, verified_existing)
-                        if await self._check_pr_stale(pr_number, pr.head_sha, update):
-                            return
-                        await report_result(
-                            self._github,
-                            self._state,
-                            update,
-                            verified_existing,
-                            toolchain.baseline_revision,
-                            self._service_login,
-                        )
+                        LOGGER.exception("Failed to prepare PR worktree #%s", pr_number)
+                        transient = True
+                        await self._maybe_backoff(pr_number, pr)
                         return
-                    LOGGER.info(
-                        "PR #%s: existing reproducer no longer reproduces,"
-                        " running new fuzz",
-                        pr_number,
-                    )
 
-                verified: Reproducer | None = None
-                if full_patch_applied:
-                    fuzz_result = await self._fuzzer.run(
-                        update.patch,
-                        update.patch_sha256,
-                        pr.head_sha,
-                        toolchain,
-                    )
-                    reproducer = fuzz_result.reproducer
-                    if reproducer is not None:
+                    try:
+                        await self._builds.build_pr_opt()
+                    except Exception:
+                        _log_command_error(
+                            sys.exc_info()[1],
+                            f"Failed to build PR opt #{pr_number}",
+                        )
+                        LOGGER.exception("Failed to build PR opt #%s", pr_number)
+                        transient = True
+                        await self._maybe_backoff(pr_number, pr)
+                        return
+
+                    toolchain = self._builds.toolchain_paths(baseline_revision)
+
+                    stored = self._state.get_pull_state(pr_number)
+                    if stored.reproducer is not None:
                         try:
-                            verified = await verify_reproducer(
-                                reproducer,
+                            stored_opt = _opt_args_from_command(
+                                stored.reproducer.command
+                            )
+                            verified_existing = await verify_reproducer(
+                                stored.reproducer,
                                 toolchain,
-                                [f"-passes={pass_name}"],
+                                stored_opt,
                                 memory_limit_bytes=self._config.opt_memory_limit_bytes,
                             )
                         except Exception:
                             LOGGER.exception(
-                                "Verification failed for PR #%s", pr_number
+                                "Re-verification of existing reproducer"
+                                " failed for PR #%s",
+                                pr_number,
                             )
-                            verified = None
+                            verified_existing = None
+                        if verified_existing is not None:
+                            LOGGER.info(
+                                "PR #%s: existing reproducer still reproduces",
+                                pr_number,
+                            )
+                            await self._emit_status(pr, "bug_found")
+                            self._state.save_reproducer(pr_number, verified_existing)
+                            if await self._check_pr_stale(
+                                pr_number, pr.head_sha, update
+                            ):
+                                return
+                            await report_result(
+                                self._github,
+                                self._state,
+                                update,
+                                verified_existing,
+                                toolchain.baseline_revision,
+                                self._service_login,
+                            )
+                            return
+                        LOGGER.info(
+                            "PR #%s: existing reproducer no longer reproduces,"
+                            " running new fuzz",
+                            pr_number,
+                        )
 
-                if verified is None:
-                    verified = await self._run_hack_agent(update, toolchain, pass_name)
+                    verified: Reproducer | None = None
+                    if full_patch_applied:
+                        fuzz_result = await self._fuzzer.run(
+                            update.patch,
+                            update.patch_sha256,
+                            pr.head_sha,
+                            toolchain,
+                        )
+                        reproducer = fuzz_result.reproducer
+                        if reproducer is not None:
+                            try:
+                                verified = await verify_reproducer(
+                                    reproducer,
+                                    toolchain,
+                                    [f"-passes={pass_name}"],
+                                    memory_limit_bytes=(
+                                        self._config.opt_memory_limit_bytes
+                                    ),
+                                )
+                            except Exception:
+                                LOGGER.exception(
+                                    "Verification failed for PR #%s", pr_number
+                                )
+                                verified = None
+
+                    if verified is None:
+                        verified = await self._run_hack_agent(
+                            update, toolchain, pass_name
+                        )
+                finally:
+                    self._pr_in_build.discard(pr_number)
 
             if verified is not None:
                 await self._emit_status(pr, "bug_found")
