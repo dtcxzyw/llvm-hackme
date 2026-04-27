@@ -139,7 +139,10 @@ class HackmeService:
                 try:
                     stored_opt = _opt_args_from_command(stored.reproducer.command)
                     verified_existing = await verify_reproducer(
-                        stored.reproducer, toolchain, stored_opt
+                        stored.reproducer,
+                        toolchain,
+                        stored_opt,
+                        memory_limit_bytes=self._config.opt_memory_limit_bytes,
                     )
                 except Exception:
                     LOGGER.exception(
@@ -181,7 +184,10 @@ class HackmeService:
                 if reproducer is not None:
                     try:
                         verified = await verify_reproducer(
-                            reproducer, toolchain, [f"-passes={pass_name}"]
+                            reproducer,
+                            toolchain,
+                            [f"-passes={pass_name}"],
+                            memory_limit_bytes=self._config.opt_memory_limit_bytes,
                         )
                     except Exception:
                         LOGGER.exception("Verification failed for PR #%s", pr_number)
@@ -195,7 +201,10 @@ class HackmeService:
                     try:
                         opt_args = _opt_args_from_command(hack_reproducer.command)
                         verified = await verify_reproducer(
-                            hack_reproducer, toolchain, opt_args
+                            hack_reproducer,
+                            toolchain,
+                            opt_args,
+                            memory_limit_bytes=self._config.opt_memory_limit_bytes,
                         )
                     except Exception:
                         LOGGER.exception(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
@@ -87,7 +87,10 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         await service._handle_pr_update(update)
 
         mock_verify.assert_called_once_with(
-            stored_reproducer, toolchain, ["-passes=instcombine<no-verify-fixpoint>"]
+            stored_reproducer,
+            toolchain,
+            ["-passes=instcombine<no-verify-fixpoint>"],
+            memory_limit_bytes=ANY,
         )
         mock_report.assert_called_once_with(
             service._github,
@@ -176,7 +179,10 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         await service._handle_pr_update(update)
 
         mock_verify.assert_called_once_with(
-            stored_reproducer, toolchain, ["-passes=instcombine<no-verify-fixpoint>"]
+            stored_reproducer,
+            toolchain,
+            ["-passes=instcombine<no-verify-fixpoint>"],
+            memory_limit_bytes=ANY,
         )
         fuzzer_mock.run.assert_not_called()
         mock_report.assert_called_once()

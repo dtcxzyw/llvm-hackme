@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from openai import AsyncOpenAI
 
@@ -45,6 +46,9 @@ class OpenAIPatchReviewer:
         self._max_patch_chars = config.max_patch_chars
         self._patch_chunk_chars = config.patch_chunk_chars
         self._max_patch_chunks = config.max_patch_chunks
+
+    def close(self) -> None:
+        self._client.close()
 
     async def review(self, patch: str) -> ReviewDecision:
         if len(patch) > self._max_patch_chars:
@@ -128,9 +132,10 @@ class OpenAIPatchReviewer:
                 ),
             )
         content = choices[0].message.content or ""
-        first_line = content.strip().split("\n", 1)[0].strip().lower()
-
-        if first_line == "innocuous":
+        text = content.strip().lower()
+        first_line = text.split("\n", 1)[0].strip()
+        clean = re.sub(r"[^\w\s]", " ", first_line)
+        if "innocuous" in clean.split():
             return ReviewDecision(accepted=True, reason="")
 
         LOGGER.warning(

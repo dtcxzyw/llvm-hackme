@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import resource
 from collections.abc import Mapping, Sequence
@@ -55,7 +56,8 @@ async def run_command(
         )
     except asyncio.TimeoutError:
         process.kill()
-        await process.wait()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=10)
         raise
     result = CommandResult(
         args=normalized,

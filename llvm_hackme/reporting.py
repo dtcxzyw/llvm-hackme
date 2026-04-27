@@ -18,7 +18,7 @@ _MARKER_PREFIX = "<!-- llvm-hackme-"
 
 
 def _make_run_line(command: list[str]) -> str:
-    pass_arg = ""
+    pass_arg = "-passes=?"
     for arg in command:
         if arg.startswith("-passes="):
             pass_arg = arg
@@ -151,7 +151,10 @@ async def report_result(
     existing_comments = await github.list_issue_comments(pr_update.pr.number)
     existing = find_llvm_hackme_comment(existing_comments, service_login)
 
-    if existing is not None and stored.comment_id is not None:
+    if existing is not None:
+        if stored.comment_id is None:
+            state.save_comment(pr_update.pr.number, existing.id, existing.html_url)
+
         old_reproducer = stored.reproducer
         if reproducer is not None:
             if old_reproducer is not None and old_reproducer.kind == reproducer.kind:
@@ -178,8 +181,6 @@ async def report_result(
                     REVIEW_REQUEST_BODY.format(comment_url=updated.html_url),
                 )
                 LOGGER.info("Requested changes for PR #%s", pr_update.pr.number)
-            return
-
         return
 
     if reproducer is None:

@@ -135,11 +135,23 @@ async def verify_reproducer(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
     opt_args: list[str],
+    *,
+    memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
     if reproducer.kind == BugKind.CRASH:
-        return await _verify_regression_crash(reproducer, toolchain, opt_args)
+        return await _verify_regression_crash(
+            reproducer,
+            toolchain,
+            opt_args,
+            memory_limit_bytes=memory_limit_bytes,
+        )
     if reproducer.kind == BugKind.MISCOMPILATION:
-        return await _verify_regression_miscompilation(reproducer, toolchain, opt_args)
+        return await _verify_regression_miscompilation(
+            reproducer,
+            toolchain,
+            opt_args,
+            memory_limit_bytes=memory_limit_bytes,
+        )
     return None
 
 
@@ -147,15 +159,27 @@ async def _verify_regression_crash(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
     opt_args: list[str],
+    *,
+    memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
     src = reproducer.source_path
 
-    baseline_crash = await check_crash(toolchain.baseline_opt, src, opt_args)
+    baseline_crash = await check_crash(
+        toolchain.baseline_opt,
+        src,
+        opt_args,
+        memory_limit_bytes=memory_limit_bytes,
+    )
     if baseline_crash is not None:
         LOGGER.warning("Baseline opt also crashes on %s — not a PR regression", src)
         return None
 
-    pr_crash = await check_crash(toolchain.pr_opt, src, opt_args)
+    pr_crash = await check_crash(
+        toolchain.pr_opt,
+        src,
+        opt_args,
+        memory_limit_bytes=memory_limit_bytes,
+    )
     if pr_crash is None:
         LOGGER.warning("PR opt did not crash during re-verification of %s", src)
         return None
@@ -177,11 +201,17 @@ async def _verify_regression_miscompilation(
     reproducer: Reproducer,
     toolchain: ToolchainPaths,
     opt_args: list[str],
+    *,
+    memory_limit_bytes: int | None = None,
 ) -> Reproducer | None:
     src = reproducer.source_path
 
     baseline_mis = await check_miscompilation(
-        toolchain.baseline_opt, toolchain.alive_tv, src, opt_args
+        toolchain.baseline_opt,
+        toolchain.alive_tv,
+        src,
+        opt_args,
+        memory_limit_bytes=memory_limit_bytes,
     )
     if baseline_mis is not None:
         LOGGER.warning(
@@ -190,7 +220,11 @@ async def _verify_regression_miscompilation(
         return None
 
     pr_mis = await check_miscompilation(
-        toolchain.pr_opt, toolchain.alive_tv, src, opt_args
+        toolchain.pr_opt,
+        toolchain.alive_tv,
+        src,
+        opt_args,
+        memory_limit_bytes=memory_limit_bytes,
     )
     if pr_mis is None:
         LOGGER.warning("PR Alive2 passed during re-verification of %s", src)

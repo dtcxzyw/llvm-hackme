@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import subprocess
@@ -66,23 +67,43 @@ def _create_objects() -> tuple[Config, StateStore, GitHubClient, OpenAIPatchRevi
     return config, state, github, reviewer
 
 
-async def plain_main() -> None:
+async def plain_main(
+    config: Config,
+    state: StateStore,
+    github: GitHubClient,
+    reviewer: OpenAIPatchReviewer,
+) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    config, state, github, reviewer = _create_objects()
     service = HackmeService(config, state, github, reviewer)
-    await service.run_forever()
+    try:
+        await service.run_forever()
+    finally:
+        with contextlib.suppress(Exception):
+            await github.aclose()
+        with contextlib.suppress(Exception):
+            reviewer.close()
+        with contextlib.suppress(Exception):
+            state.close()
 
 
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] in ("--plain", "-p"):
-        asyncio.run(plain_main())
-    else:
-        config, state, github, reviewer = _create_objects()
-        app = HackmeTUI(config, state, github, reviewer)
-        app.run()
+    config, state, github, reviewer = _create_objects()
+    try:
+        if len(sys.argv) > 1 and sys.argv[1] in ("--plain", "-p"):
+            asyncio.run(plain_main(config, state, github, reviewer))
+        else:
+            app = HackmeTUI(config, state, github, reviewer)
+            app.run()
+    finally:
+        with contextlib.suppress(Exception):
+            asyncio.run(github.aclose())
+        with contextlib.suppress(Exception):
+            reviewer.close()
+        with contextlib.suppress(Exception):
+            state.close()
 
 
 if __name__ == "__main__":
