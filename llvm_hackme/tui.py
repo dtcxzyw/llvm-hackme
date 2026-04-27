@@ -24,16 +24,10 @@ class _RichLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            self._app.call_from_thread(self._write, msg)
+            log_panel = self._app.query_one("#log-panel", RichLog)
+            log_panel.write(msg)
         except Exception:
             self.handleError(record)
-
-    def _write(self, msg: str) -> None:
-        try:
-            log_panel = self._app.query_one("#log-panel", RichLog)
-        except Exception:
-            return
-        log_panel.write(msg)
 
 
 STATUS_LABELS: dict[str, str] = {

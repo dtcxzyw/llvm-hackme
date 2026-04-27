@@ -72,8 +72,20 @@ async def run_command(
         )
     except asyncio.TimeoutError:
         process.kill()
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(process.wait(), timeout=10)
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(), timeout=10
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            stdout_bytes, stderr_bytes = b"", b""
+        timeout_result = CommandResult(
+            args=normalized,
+            returncode=process.returncode if process.returncode is not None else -1,
+            stdout=stdout_bytes.decode(errors="replace"),
+            stderr=stderr_bytes.decode(errors="replace"),
+        )
+        _write_command_log_with_tag(normalized, timeout_result, "[TIMED OUT]")
         raise
     result = CommandResult(
         args=normalized,
@@ -88,13 +100,22 @@ async def run_command(
 
 
 def _write_command_log(args: tuple[str, ...], result: CommandResult) -> None:
+    _write_command_log_with_tag(args, result, None)
+
+
+def _write_command_log_with_tag(
+    args: tuple[str, ...], result: CommandResult, tag: str | None
+) -> None:
     log_path = _command_log_path.get(None)
     if log_path is None:
         return
     ts = datetime.now(timezone.utc).isoformat()
     try:
         with open(log_path, "a") as f:
-            f.write(f"[{ts}] {' '.join(args)}\n")
+            line = f"[{ts}] {' '.join(args)}"
+            if tag is not None:
+                line += f" {tag}"
+            f.write(line + "\n")
             if result.stdout:
                 f.write(result.stdout)
                 if not result.stdout.endswith("\n"):
