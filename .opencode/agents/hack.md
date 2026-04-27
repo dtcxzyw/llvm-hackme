@@ -124,20 +124,19 @@ Read the diff file.  Identify every changed function.  Compare the baseline and 
 source code with the `read` tool.  For each changed hunk, annotate preconditions
 and postconditions:
 
-**Explicit casts — the precondition is a type check:**
+**Explicit casts — assertion pre-condition:**
 
 ```
-// pre-condition: isa<Instruction>(V)
+// pre-condition: isa<Instruction>(V) — must hold or crash
 auto *I = cast<Instruction>(V);
 ```
 
-**Conditional (nullable) casts — precondition is guarded by `if`:**
+**Conditional (nullable) casts — post-condition inside the body:**
 
 ```
 if (auto *I = dyn_cast<Instruction>(V)) {
-// pre-condition: isa<Instruction>(V)
+// post-condition: isa<Instruction>(V) — guaranteed by dyn_cast
 }
-```
 
 **Bit-width assumptions — precondition from APInt semantics:**
 
@@ -155,11 +154,11 @@ Value *Op = I->getOperand(0);
 // pre-condition: I->getNumOperands() > 0
 ```
 
-**Pattern-match guards — precondition is the match result:**
+**Pattern-match guards — post-condition inside the branch:**
 
 ```
 if (match(V, m_Add(m_Value(X), m_ConstantInt(C)))) {
-// pre-condition: V matches add with constant RHS
+// post-condition: V matches add with constant RHS — guaranteed by match
 ```
 
 Do **not** guess preconditions blindly.  Use the `read` tool to look up the actual
