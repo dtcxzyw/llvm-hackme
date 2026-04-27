@@ -108,7 +108,9 @@ class HackmeTUI(App[None]):
         self._refresh_header()
         self._refresh_pr_panel()
 
-        handler = _RichLogHandler(self, fmt="%(levelname)s %(name)s: %(message)s")
+        handler = _RichLogHandler(
+            self, fmt="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        )
         logging.getLogger().addHandler(handler)
 
         async def _status_callback(
