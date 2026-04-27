@@ -186,8 +186,9 @@ class HackmeService:
                 )
                 if hack_reproducer is not None:
                     try:
+                        hack_pass = _pass_from_command(hack_reproducer.command)
                         verified = await verify_reproducer(
-                            hack_reproducer, toolchain, pass_name
+                            hack_reproducer, toolchain, hack_pass
                         )
                     except Exception:
                         LOGGER.exception(
@@ -393,6 +394,13 @@ class HackmeService:
             except Exception:
                 LOGGER.exception("Baseline update failed")
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
+
+
+def _pass_from_command(command: list[str]) -> str:
+    for arg in command:
+        if arg.startswith("-passes="):
+            return arg.removeprefix("-passes=")
+    return "default<O3>"
 
 
 def _find_opencode() -> str | None:
