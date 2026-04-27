@@ -89,6 +89,34 @@ class TestScanner:
         assert len(updates) == 0
 
     @pytest.mark.asyncio
+    async def test_scan_filters_test_only(
+        self, mock_github: MagicMock, mock_state: StateStore
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        mock_pr = PullRequest(
+            number=5,
+            title="Test file only",
+            author_login="user",
+            head_sha="sha5",
+            updated_at=now,
+            html_url="https://example.com",
+        )
+        mock_github.list_recent_open_pull_requests = AsyncMock(
+            return_value=([mock_pr], now)
+        )
+        mock_github.list_pull_files = AsyncMock(
+            return_value=["llvm/test/Transforms/InstCombine/add.ll"]
+        )
+
+        scanner = PullRequestScanner(
+            MagicMock(scan_overlap_seconds=300),
+            mock_state,
+            mock_github,
+        )
+        updates = await scanner.scan_once()
+        assert len(updates) == 0
+
+    @pytest.mark.asyncio
     async def test_scan_skips_already_processed(
         self, mock_github: MagicMock, mock_state: StateStore
     ) -> None:

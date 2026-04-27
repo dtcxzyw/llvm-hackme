@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from llvm_hackme.config import Config
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.models import PullRequestUpdate
-from llvm_hackme.paths import is_relevant_pr_file
+from llvm_hackme.paths import is_source_file
 from llvm_hackme.state import StateStore
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class PullRequestScanner:
                 LOGGER.exception("Failed to list files for PR #%s", pr.number)
                 continue
 
-            if not any(is_relevant_pr_file(path) for path in files):
+            if not any(is_source_file(path) for path in files):
                 continue
 
             try:
