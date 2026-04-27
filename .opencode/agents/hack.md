@@ -231,22 +231,102 @@ submission, read the rejection reason carefully:
 
 ## Miscompilation Heuristics
 
-1. **Poison-generating flags — `ninf` and `nnan`** — the most important fast-math
-   flags.  Check whether the patch correctly preserves or drops these flags.
-   Ignore other fast-math flags (`nsz`, `arcp`, `contract`, `afn`, `reassoc`).
-2. **Poison / UB propagation** — does the patch add new `nuw`, `nsw`, or `exact`
-   flags?  Does it preserve `inbounds`, `align`, `nonnull`, `dereferenceable`?
-   Can an instruction that used to be safe now produce poison or immediate UB?
-3. **Overly relaxed preconditions** — the patch may optimize a pattern that was
-   previously guarded by a stricter condition.  Feed input that satisfies the new
-   (looser) precondition but violates the old (correct) assumption.
-4. **ConstantExpr** — does the patch match on `Constant` but neglect `ConstantExpr`?
-   A constant expression can appear where a plain constant is expected.
-5. **Refinement / replacement** — if the patch replaces expression `A` with `B`
-   based on `simplify(A) == simplify(B)`, check whether `simplify(B)` introduces
-   poison or UB that `A` did not have.  Look for `replaceAllUsesWith` versus
-   single-use optimizations: the replacement must be safe for **every** user, not
-   just the current one.
+### 1. Poison-Generating Instruction Flags
+
+When a fold replaces operands, removes guarding conditions, or changes semantics,
+you **MUST** check whether these flags are still valid and drop them if not:
+
+| Flag | Applies to | Implication | When to drop |
+|------|-----------|-------------|--------------|
+| `nuw` | add, sub, mul, shl | poison if unsigned overflow | operand widened or new operand may wrap |
+| `nsw` | add, sub, mul, shl | poison if signed overflow | same |
+| `exact` | sdiv, udiv, ashr, lshr | poison if not exact division | new divisor may not divide evenly |
+| `disjoint` | or | poison if operands share set bits | operand replaced, fold merges bits |
+| `samesign` | icmp | poison if operands differ in sign | operands changed, pred inverted |
+| `inbounds` | getelementptr | poison if address out of bounds | address recomputed |
+| `nneg` | zext | poison if src is negative | src semantics changed |
+
+**Key rules for flag handling:**
+- `replaceOperand()` **retains** the old flags — if the new operand makes them invalid, drop them.
+- `ICmpInst::Create()` / `BinaryOperator::Create()` **drops** all flags — old flags are lost.
+- When pattern-matching instructions with flags (`m_SpecificCmp`, `m_Add`, `m_Specific`, etc.),
+  compare flags **bitwise**, not just the opcode or predicate.
+- Pattern matchers like `m_SpecificCmp` matched by predicate **ignoring** `samesign` → miscompile (121110).
+- `disjoint` on `or` not dropped when operand replaced with constant `true` → poison (137937).
+- `samesign` on icmp retained after `replaceOperand` changed operand to one that may differ in sign → miscompile (112476).
+
+### 2. Poison-Generating / UB-Implying Attributes and Metadata
+
+| Attribute | Applies to | UB implication | When to drop |
+|-----------|-----------|----------------|--------------|
+| `range(S,E)` | ctlz, cttz, ctpop intrinsics | result is poison if outside range | guard removed, operand changed |
+| `noundef` | any instruction / call arg | returning undef/poison is immediate UB | `is_zero_poison` set, operand may be undef |
+| `align N` | load, store, call args | UB if pointer misaligned | address recomputed, aliasing changed |
+| `nonnull` | call args, return | UB if pointer is null | operand may become null through fold |
+| `dereferenceable(N)` | call args | UB if <N bytes readable | memory access transformed away |
+| `dereferenceable_or_null(N)` | call args | UB if non-null but <N bytes readable | same |
+
+**Non-UB metadata on load instructions** (hints only, no UB if violated):
+- `!range`, `!nonnull`, `!align`, `!dereferenceable`, `!dereferenceable_or_null` — these are **optimization hints** attached to load results.  Dropping them degrades optimization but does NOT introduce UB.  Do NOT confuse them with the **attribute** variants above which **do** imply UB.
+
+**Examples from real bugs:**
+- Removing a guard `icmp ne %x, 0` before `@llvm.ctpop` without dropping `range` attribute → poison (111934).
+- Setting `is_zero_poison=true` on `@llvm.cttz` without dropping `noundef` → immediate UB on zero input (112068).
+- `range` not dropped in `foldBitCeil` when input may be zero → poison (112076).
+- Replacing `@llvm.ctpop` operand without checking `range` validity → poison (111934).
+
+### 3. Fast-Math Flags
+
+| Flag | Implication | Priority |
+|------|-------------|----------|
+| `nnan` | fadd/fsub/fmul/fdiv/frem: poison if any operand is NaN | **Must check** |
+| `ninf` | same ops: poison if any operand is ±Inf | **Must check** |
+| `nsz` | ±0 treated as identical (no poison) | Lower priority |
+| `arcp` | division reciprocal approx (no poison) | Lower priority |
+| `contract` | FMA allowed (no poison) | Lower priority |
+| `afn` | approximate functions allowed (no poison) | Lower priority |
+| `reassoc` | reassociation allowed (no poison) | Lower priority |
+
+For `nnan`/`ninf`: does the fold turn a NaN/Inf result into a finite one, or vice versa?
+
+### 4. GEP Folding Constraints
+
+Folding `icmp eq ptr %gep1, %gep2` to `icmp eq iN %idx1, %idx2` **requires**:
+- Both GEPs have `inbounds` **and** the compared indices have `nsw`/`nuw`
+- Without nowrap, the scale factor may cause wrapping that makes index equality ≠ address equality
+
+Example: 121890 — fold assumed index overflow is harmless but it was not.
+
+### 5. SCEV and Loop Analysis Traps
+
+- **`std::optional<bool>` coercion**: `if (checkCondition(...))` coerces `false` to `true`.
+  Must use `if (checkCondition(...).value_or(false))` or `checkCondition(...) == true`.
+  Look for this pattern in patches touching analysis predicates with optional return types (105785).
+- **Sign-extension vs zero-extension**: when SCEV replaces a stride constant from a `sext` input,
+  the constant must be sign-extended, not zero-extended (91369).
+- **SCEV replacement scope**: SCEV-based operand simplification is only safe for live-in values,
+  never for reduction phis or loop-variant values (119173).
+- **Decomposition overflow**: intermediate arithmetic during GEP/index decomposition may overflow;
+  overflowing coefficients invalidate the result (140481).
+- **Predicated path poison**: before treating a load as safe to speculatively execute, check that
+  no address operand can be poison along the predicated path — a phi from the vector.body edge
+  may carry poison into the load (142957).
+
+### 6. Overly Relaxed Preconditions
+
+The patch may optimize a pattern previously guarded by a stricter condition.  Feed input that
+satisfies the new (looser) precondition but violates the old (correct) assumption.
+
+### 7. ConstantExpr
+
+Does the patch match on `Constant` but neglect `ConstantExpr`?  A constant expression can appear
+where a plain constant is expected.
+
+### 8. Refinement / Replacement
+
+If the patch replaces expression `A` with `B` based on `simplify(A) == simplify(B)`, check whether
+`simplify(B)` introduces poison/UB that `A` did not have.  Look for `replaceAllUsesWith` versus
+single-use optimizations: the replacement must be safe for **every** user, not just the current one.
 
 ## Tool Timeouts
 
