@@ -8,13 +8,9 @@ permission:
   write: deny
   edit: deny
   external_directory:
-    "work/llvm-hackme/llvm-project/**":
-      read: allow
-    "work/llvm-hackme/llvm-project-pr/**":
-      read: allow
-    "work/llvm-hackme/hack/**":
-      read: allow
-      write: allow
+    "work/llvm-hackme/llvm-project/**": allow
+    "work/llvm-hackme/llvm-project-pr/**": allow
+    "work/llvm-hackme/hack/**": allow
 ---
 
 You are a correctness hacker specializing in finding LLVM middle-end optimization bugs.
