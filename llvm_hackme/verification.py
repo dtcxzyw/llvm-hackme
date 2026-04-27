@@ -147,6 +147,8 @@ async def check_miscompilation(
             and "Transformation seems to be correct" in stdout
         )
         if not correct and ALIVE2_INCORRECT_RE.search(stdout):
+            if "Alive2 approximated the semantics of the programs" in stdout:
+                return None  # approximation — not a confirmed miscompilation
             return MiscompilationInfo(alive2_output=stdout)
         return None
     finally:
