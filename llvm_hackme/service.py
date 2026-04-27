@@ -14,7 +14,7 @@ from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
 from llvm_hackme.models import BugKind, PullRequest, PullRequestUpdate, Reproducer
-from llvm_hackme.passes import guess_pass_name, is_test_file
+from llvm_hackme.passes import guess_pass_name
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
 from llvm_hackme.state import StateStore
@@ -119,7 +119,7 @@ class HackmeService:
 
         async with self._build_lock:
             try:
-                toolchain = await self._builds.prepare_pr_build(
+                toolchain, tests_applied = await self._builds.prepare_pr_build(
                     update.patch, pr.head_sha
                 )
             except Exception:
@@ -160,7 +160,7 @@ class HackmeService:
                     pr_number,
                 )
 
-            has_tests = _patch_has_test_files(update.patch)
+            has_tests = tests_applied
 
             verified: Reproducer | None = None
             if has_tests:
@@ -393,15 +393,6 @@ class HackmeService:
             except Exception:
                 LOGGER.exception("Baseline update failed")
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
-
-
-def _patch_has_test_files(patch: str) -> bool:
-    for line in patch.split("\n"):
-        if line.startswith("diff --git a/"):
-            file_path = line.removeprefix("diff --git a/").split(" ", 1)[0]
-            if is_test_file(file_path):
-                return True
-    return False
 
 
 def _find_opencode() -> str | None:

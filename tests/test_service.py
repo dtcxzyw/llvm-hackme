@@ -53,7 +53,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
     builds_mock = MagicMock()
     toolchain = MagicMock()
     toolchain.baseline_revision = "rev"
-    builds_mock.prepare_pr_build = AsyncMock(return_value=toolchain)
+    builds_mock.prepare_pr_build = AsyncMock(return_value=(toolchain, True))
 
     fuzzer_mock = MagicMock()
     fuzzer_mock.run = AsyncMock()
@@ -137,7 +137,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
     builds_mock = MagicMock()
     toolchain = MagicMock()
     toolchain.baseline_revision = "rev"
-    builds_mock.prepare_pr_build = AsyncMock(return_value=toolchain)
+    builds_mock.prepare_pr_build = AsyncMock(return_value=(toolchain, False))
 
     fuzz_mock = AsyncMock()
     fuzz_mock.return_value = MagicMock(reproducer=None)

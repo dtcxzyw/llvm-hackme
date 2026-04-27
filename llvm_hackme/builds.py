@@ -81,7 +81,9 @@ class BuildManager:
         await self._configure_and_build_alive2()
         await self._configure_and_build_fuzz_tools()
 
-    async def prepare_pr_build(self, patch: str, head_sha: str) -> ToolchainPaths:
+    async def prepare_pr_build(
+        self, patch: str, head_sha: str
+    ) -> tuple[ToolchainPaths, bool]:
         baseline_revision = await self.current_baseline_revision()
         await self._sync_pr_worktree(baseline_revision)
         if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
@@ -89,11 +91,11 @@ class BuildManager:
         patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
 
-        await self._apply_patch(patch_path, baseline_revision)
+        tests_applied = await self._apply_patch(patch_path, baseline_revision)
         await self._configure_and_build_pr_opt()
-        return self.toolchain_paths(baseline_revision)
+        return self.toolchain_paths(baseline_revision), tests_applied
 
-    async def _apply_patch(self, patch_path: Path, baseline_revision: str) -> None:
+    async def _apply_patch(self, patch_path: Path, baseline_revision: str) -> bool:
         cwd = self.config.llvm_project_pr_dir
         apply_args = [
             "git",
@@ -105,7 +107,7 @@ class BuildManager:
 
         try:
             await run_command([*apply_args, str(patch_path)], cwd=cwd)
-            return
+            return True
         except Exception:
             LOGGER.warning("Full patch apply failed, retrying source-only")
 
@@ -119,6 +121,7 @@ class BuildManager:
         ]
         try:
             await run_command(source_only, cwd=cwd)
+            return False
         except Exception:
             LOGGER.exception("Source-only patch apply also failed, resetting worktree")
             await self._reset_worktree(baseline_revision)
