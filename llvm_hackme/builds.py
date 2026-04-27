@@ -88,35 +88,48 @@ class BuildManager:
             raise RuntimeError(f"Invalid head SHA: {head_sha!r}")
         patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
-        try:
-            await run_command(
-                [
-                    "git",
-                    "-c",
-                    "core.symlinks=false",
-                    "apply",
-                    "--3way",
-                    str(patch_path),
-                ],
-                cwd=self.config.llvm_project_pr_dir,
-            )
-        except Exception:
-            LOGGER.exception(
-                "Failed to apply patch for %s, resetting worktree", head_sha
-            )
-            with contextlib.suppress(Exception):
-                await run_command(
-                    ["git", "reset", "--hard", baseline_revision],
-                    cwd=self.config.llvm_project_pr_dir,
-                )
-            with contextlib.suppress(Exception):
-                await run_command(
-                    ["git", "clean", "-ffd"],
-                    cwd=self.config.llvm_project_pr_dir,
-                )
-            raise
+
+        await self._apply_patch(patch_path, baseline_revision)
         await self._configure_and_build_pr_opt()
         return self.toolchain_paths(baseline_revision)
+
+    async def _apply_patch(self, patch_path: Path, baseline_revision: str) -> None:
+        cwd = self.config.llvm_project_pr_dir
+        apply_args = [
+            "git",
+            "-c",
+            "core.symlinks=false",
+            "apply",
+            "--3way",
+        ]
+
+        try:
+            await run_command([*apply_args, str(patch_path)], cwd=cwd)
+            return
+        except Exception:
+            LOGGER.warning("Full patch apply failed, retrying source-only")
+
+        await self._reset_worktree(baseline_revision)
+
+        source_only = [
+            *apply_args,
+            "--exclude=llvm/test/*",
+            "--exclude=clang/test/*",
+            str(patch_path),
+        ]
+        try:
+            await run_command(source_only, cwd=cwd)
+        except Exception:
+            LOGGER.exception("Source-only patch apply also failed, resetting worktree")
+            await self._reset_worktree(baseline_revision)
+            raise
+
+    async def _reset_worktree(self, baseline_revision: str) -> None:
+        cwd = self.config.llvm_project_pr_dir
+        with contextlib.suppress(Exception):
+            await run_command(["git", "reset", "--hard", baseline_revision], cwd=cwd)
+        with contextlib.suppress(Exception):
+            await run_command(["git", "clean", "-ffd"], cwd=cwd)
 
     async def current_baseline_revision(self) -> str:
         result = await run_command(
