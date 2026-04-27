@@ -5,7 +5,6 @@ import logging
 from dataclasses import dataclass
 
 from textual.app import App, ComposeResult
-from textual.logging import TextualHandler
 from textual.widgets import RichLog, Static
 
 from llvm_hackme.config import Config
@@ -13,6 +12,29 @@ from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
 from llvm_hackme.service import HackmeService
 from llvm_hackme.state import StateStore
+
+
+class _RichLogHandler(logging.Handler):
+    def __init__(self, app: App[None], fmt: str | None = None) -> None:
+        super().__init__()
+        self._app = app
+        if fmt is not None:
+            self.setFormatter(logging.Formatter(fmt))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            self._app.call_from_thread(self._write, msg)
+        except Exception:
+            self.handleError(record)
+
+    def _write(self, msg: str) -> None:
+        try:
+            log_panel = self._app.query_one("#log-panel", RichLog)
+        except Exception:
+            return
+        log_panel.write(msg)
+
 
 STATUS_LABELS: dict[str, str] = {
     "in_progress": "IN PROGRESS",
@@ -92,7 +114,7 @@ class HackmeTUI(App[None]):
         self._refresh_header()
         self._refresh_pr_panel()
 
-        handler = TextualHandler()
+        handler = _RichLogHandler(self, fmt="%(levelname)s %(name)s: %(message)s")
         logging.getLogger().addHandler(handler)
 
         async def _status_callback(
