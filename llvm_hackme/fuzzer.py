@@ -29,10 +29,17 @@ ALIVE2_INCORRECT_RE = re.compile(
 )
 
 
-def _is_safe_subpath(path: str) -> bool:
+def _is_safe_subpath(path: str, *, base_dir: Path) -> bool:
     if not path or path.startswith("/") or path.startswith(".."):
         return False
-    return os.pardir not in path.split("/")
+    if os.pardir in path.split("/"):
+        return False
+    resolved = (base_dir / path).resolve()
+    try:
+        resolved.relative_to(base_dir.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _read_content(path: Path) -> str | None:
@@ -153,7 +160,7 @@ class FuzzRunner:
     ) -> bool:
         any_success = False
         for i, (file, func) in enumerate(seeds):
-            if not _is_safe_subpath(file):
+            if not _is_safe_subpath(file, base_dir=self._config.llvm_project_pr_dir):
                 LOGGER.warning("Rejecting unsafe seed path: %s", file)
                 continue
             src = self._config.llvm_project_pr_dir / file

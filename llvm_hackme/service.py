@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
@@ -474,6 +475,13 @@ def _replace_pass(passes_arg: str, old: str, new: str) -> str:
     return "-passes=" + ",".join(fixed)
 
 
+_VALID_OPT_ARG_RE = re.compile(r"^-passes=[-\w<>\[\]#,&]+$")
+
+
+def _valid_opt_args(opt_args: list[str]) -> bool:
+    return all(_VALID_OPT_ARG_RE.match(arg) for arg in opt_args)
+
+
 def _find_opencode() -> str | None:
     import shutil
 
@@ -511,6 +519,9 @@ async def _hack_verify(
         if opt_args_str.strip()
         else ["-passes=instcombine<no-verify-fixpoint>"]
     )
+    if not _valid_opt_args(opt_args):
+        LOGGER.warning("Rejected unsafe opt_args from hack agent: %s", opt_args)
+        return None
 
     src_file = hack_dir / "hack-reproducer.ll"
     src_file.write_text(ir_text)

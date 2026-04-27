@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from llvm_hackme.commands import run_command
+from llvm_hackme.commands import minimal_execution_env, run_command
 from llvm_hackme.config import Config
 
 LOGGER = logging.getLogger(__name__)
@@ -31,6 +31,17 @@ class BuildManager:
     def __init__(self, config: Config) -> None:
         self.config = config
 
+    def _build_env(self, base_dir: Path) -> dict[str, str]:
+        return {
+            **minimal_execution_env(),
+            "CCACHE_BASEDIR": str(base_dir),
+            "CCACHE_DIR": str(self.config.work_dir / "ccache"),
+            "CCACHE_NOHASHDIR": "true",
+        }
+
+    _BUILD_TIMEOUT = 3600
+    _CMDLINE_TIMEOUT = 120
+
     async def update_baseline(self) -> str:
         self.config.work_dir.mkdir(parents=True, exist_ok=True)
         await self._ensure_clone(self.config.llvm_project_dir, LLVM_REPOSITORY)
@@ -40,10 +51,14 @@ class BuildManager:
         old_alive2 = await self._rev_parse("HEAD", self.config.alive2_dir)
 
         await run_command(
-            ["git", "fetch", "--prune", "origin"], cwd=self.config.llvm_project_dir
+            ["git", "fetch", "--prune", "origin"],
+            cwd=self.config.llvm_project_dir,
+            env=minimal_execution_env(),
         )
         await run_command(
-            ["git", "fetch", "--prune", "origin"], cwd=self.config.alive2_dir
+            ["git", "fetch", "--prune", "origin"],
+            cwd=self.config.alive2_dir,
+            env=minimal_execution_env(),
         )
 
         await self._checkout_rev("origin/main", self.config.llvm_project_dir)
@@ -67,12 +82,24 @@ class BuildManager:
         return await self.current_baseline_revision()
 
     async def _rev_parse(self, ref: str, work_dir: Path) -> str:
-        result = await run_command(["git", "rev-parse", ref], cwd=work_dir)
+        result = await run_command(
+            ["git", "rev-parse", ref],
+            cwd=work_dir,
+            env=minimal_execution_env(),
+        )
         return result.stdout.strip()
 
     async def _checkout_rev(self, rev: str, work_dir: Path) -> None:
-        await run_command(["git", "checkout", rev], cwd=work_dir)
-        await run_command(["git", "reset", "--hard", rev], cwd=work_dir)
+        await run_command(
+            ["git", "checkout", rev],
+            cwd=work_dir,
+            env=minimal_execution_env(),
+        )
+        await run_command(
+            ["git", "reset", "--hard", rev],
+            cwd=work_dir,
+            env=minimal_execution_env(),
+        )
 
     async def _rollback(self, llvm_rev: str, alive2_rev: str) -> None:
         await self._checkout_rev(llvm_rev, self.config.llvm_project_dir)
@@ -106,7 +133,11 @@ class BuildManager:
         ]
 
         try:
-            await run_command([*apply_args, str(patch_path)], cwd=cwd)
+            await run_command(
+                [*apply_args, str(patch_path)],
+                cwd=cwd,
+                env=minimal_execution_env(),
+            )
             return True
         except Exception:
             LOGGER.warning("Full patch apply failed, retrying source-only")
@@ -120,7 +151,11 @@ class BuildManager:
             str(patch_path),
         ]
         try:
-            await run_command(source_only, cwd=cwd)
+            await run_command(
+                source_only,
+                cwd=cwd,
+                env=minimal_execution_env(),
+            )
             return False
         except Exception:
             LOGGER.exception("Source-only patch apply also failed, resetting worktree")
@@ -130,13 +165,23 @@ class BuildManager:
     async def _reset_worktree(self, baseline_revision: str) -> None:
         cwd = self.config.llvm_project_pr_dir
         with contextlib.suppress(Exception):
-            await run_command(["git", "reset", "--hard", baseline_revision], cwd=cwd)
+            await run_command(
+                ["git", "reset", "--hard", baseline_revision],
+                cwd=cwd,
+                env=minimal_execution_env(),
+            )
         with contextlib.suppress(Exception):
-            await run_command(["git", "clean", "-ffd"], cwd=cwd)
+            await run_command(
+                ["git", "clean", "-ffd"],
+                cwd=cwd,
+                env=minimal_execution_env(),
+            )
 
     async def current_baseline_revision(self) -> str:
         result = await run_command(
-            ["git", "rev-parse", "HEAD"], cwd=self.config.llvm_project_dir
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.config.llvm_project_dir,
+            env=minimal_execution_env(),
         )
         return result.stdout.strip()
 
@@ -156,7 +201,10 @@ class BuildManager:
         if (path / ".git").exists():
             return
         path.parent.mkdir(parents=True, exist_ok=True)
-        await run_command(["git", "clone", repository, path])
+        await run_command(
+            ["git", "clone", repository, path],
+            env=minimal_execution_env(),
+        )
 
     async def _sync_pr_worktree(self, baseline_revision: str) -> None:
         if not self.config.llvm_project_pr_dir.exists():
@@ -170,15 +218,23 @@ class BuildManager:
                     baseline_revision,
                 ],
                 cwd=self.config.llvm_project_dir,
+                env=minimal_execution_env(),
             )
         await run_command(
-            ["git", "fetch", "--prune", "origin"], cwd=self.config.llvm_project_pr_dir
+            ["git", "fetch", "--prune", "origin"],
+            cwd=self.config.llvm_project_pr_dir,
+            env=minimal_execution_env(),
         )
         await run_command(
             ["git", "reset", "--hard", baseline_revision],
             cwd=self.config.llvm_project_pr_dir,
+            env=minimal_execution_env(),
         )
-        await run_command(["git", "clean", "-ffd"], cwd=self.config.llvm_project_pr_dir)
+        await run_command(
+            ["git", "clean", "-ffd"],
+            cwd=self.config.llvm_project_pr_dir,
+            env=minimal_execution_env(),
+        )
 
     async def _configure_and_build_baseline(self) -> None:
         self.config.llvm_build_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +258,8 @@ class BuildManager:
                 "-DLLVM_ENABLE_ZSTD=OFF",
             ],
             cwd=self.config.llvm_build_dir,
-            env=self._ccache_env(self.config.llvm_project_dir),
+            env=self._build_env(self.config.llvm_project_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
             [
@@ -217,7 +274,8 @@ class BuildManager:
                 "llvm-reduce",
             ],
             cwd=self.config.llvm_build_dir,
-            env=self._ccache_env(self.config.llvm_project_dir),
+            env=self._build_env(self.config.llvm_project_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
 
     async def _configure_and_build_pr_opt(self) -> None:
@@ -242,12 +300,14 @@ class BuildManager:
                 "-DLLVM_ENABLE_ZSTD=OFF",
             ],
             cwd=self.config.llvm_build_pr_dir,
-            env=self._ccache_env(self.config.llvm_project_pr_dir),
+            env=self._build_env(self.config.llvm_project_pr_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
             ["cmake", "--build", ".", "-j", "32", "-t", "opt"],
             cwd=self.config.llvm_build_pr_dir,
-            env=self._ccache_env(self.config.llvm_project_pr_dir),
+            env=self._build_env(self.config.llvm_project_pr_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
 
     async def _configure_and_build_alive2(self) -> None:
@@ -264,12 +324,14 @@ class BuildManager:
                 "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
             ],
             cwd=self.config.alive2_build_dir,
-            env=self._ccache_env(self.config.alive2_dir),
+            env=self._build_env(self.config.alive2_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
             ["cmake", "--build", ".", "-j", "32", "-t", "alive-tv"],
             cwd=self.config.alive2_build_dir,
-            env=self._ccache_env(self.config.alive2_dir),
+            env=self._build_env(self.config.alive2_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
 
     async def _configure_and_build_fuzz_tools(self) -> None:
@@ -285,17 +347,12 @@ class BuildManager:
                 "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
             ],
             cwd=self.config.fuzz_tools_build_dir,
-            env=self._ccache_env(self.config.llvm_project_dir),
+            env=self._build_env(self.config.llvm_project_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
         await run_command(
             ["cmake", "--build", ".", "-j"],
             cwd=self.config.fuzz_tools_build_dir,
-            env=self._ccache_env(self.config.llvm_project_dir),
+            env=self._build_env(self.config.llvm_project_dir),
+            timeout=self._BUILD_TIMEOUT,
         )
-
-    def _ccache_env(self, base_dir: Path) -> dict[str, str]:
-        return {
-            "CCACHE_BASEDIR": str(base_dir),
-            "CCACHE_DIR": str(self.config.work_dir / "ccache"),
-            "CCACHE_NOHASHDIR": "true",
-        }
