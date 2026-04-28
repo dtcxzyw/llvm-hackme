@@ -23,6 +23,13 @@ from llvm_hackme.passes import guess_pass_name
 
 LOGGER = logging.getLogger(__name__)
 
+_FIXPOINT_RE = re.compile(r"<[^>]*>")
+
+
+def _bare_pass(pass_name: str) -> str:
+    return _FIXPOINT_RE.sub("", pass_name)
+
+
 FUNC_RE = re.compile(r"define [^@]+@([-\w]+)\(")
 ALIVE2_INCORRECT_RE = re.compile(
     r"[1-9]\d* incorrect transformations?|ERROR: Value mismatch"
@@ -114,7 +121,7 @@ class FuzzRunner:
                     "-o",
                     "/dev/null",
                     seeds_file,
-                    f"-passes={pass_name}",
+                    f"-passes={_bare_pass(pass_name)}",
                 ],
                 timeout=60,
                 env=minimal_execution_env(),
@@ -130,7 +137,7 @@ class FuzzRunner:
             toolchain,
             patch_sha256,
             pr_head_sha,
-            pass_name,
+            _bare_pass(pass_name),
         )
 
     def _collect_seeds(self, patch: str) -> list[tuple[str, str]]:
