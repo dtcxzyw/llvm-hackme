@@ -130,6 +130,25 @@ class HackmeService:
 
         task.add_done_callback(_done_callback)
 
+    async def request_pr(self, pr_number: int) -> None:
+        try:
+            pr = await self._github.get_pull_request(pr_number)
+        except Exception:
+            LOGGER.exception("Failed to fetch PR #%s", pr_number)
+            return
+        try:
+            patch = await self._github.get_pull_patch(pr_number)
+        except Exception:
+            LOGGER.exception("Failed to fetch patch for PR #%s", pr_number)
+            return
+        patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
+        self._state.record_pr_update(
+            pr_number, head_sha=pr.head_sha, patch_sha256=patch_sha256
+        )
+        update = PullRequestUpdate(pr, patch, patch_sha256)
+        self._schedule_pr_task(update)
+        LOGGER.info("Manually enqueued PR #%s", pr_number)
+
     async def _check_pr_stale(
         self, pr_number: int, processed_sha: str, update: PullRequestUpdate
     ) -> bool:

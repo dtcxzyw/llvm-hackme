@@ -241,6 +241,13 @@ class GitHubClient:
         payload = response.json_payload
         return str(payload["head"]["sha"])
 
+    async def get_pull_request(self, pull_number: int) -> PullRequest:
+        response = await self._request(
+            "GET",
+            f"/repos/{self.repository}/pulls/{pull_number}",
+        )
+        return _parse_pull_request(response.json_payload)
+
     async def list_issue_comments(self, issue_number: int) -> list[IssueComment]:
         comments: list[IssueComment] = []
         page = 1

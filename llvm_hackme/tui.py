@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from textual.app import App, ComposeResult
-from textual.widgets import RichLog, Static
+from textual.widgets import Input, RichLog, Static
 
 from llvm_hackme.config import Config
 from llvm_hackme.github import GitHubClient
@@ -77,6 +77,11 @@ class HackmeTUI(App[None]):
     #log-panel {
         height: 1fr;
     }
+
+    #input {
+        height: 1;
+        dock: bottom;
+    }
     """
 
     BINDINGS = [("q", "quit", "Quit")]
@@ -96,6 +101,7 @@ class HackmeTUI(App[None]):
         self._login = ""
         self._pr_entries: dict[int, PREntry] = {}
         self._service_task: asyncio.Task[object] | None = None
+        self._service: HackmeService | None = None
 
     def _resolve_login(self) -> str:
         override = self._config.github_login_override
@@ -107,6 +113,7 @@ class HackmeTUI(App[None]):
         yield Static("", id="status-header")
         yield Static("", id="pr-panel")
         yield RichLog(id="log-panel", wrap=True, highlight=True, markup=True)
+        yield Input(placeholder="PR number or URL...", id="input")
 
     async def on_mount(self) -> None:
         override = self._config.github_login_override
@@ -140,6 +147,7 @@ class HackmeTUI(App[None]):
             status_callback=_status_callback,
             service_login=self._resolve_login(),
         )
+        self._service = service
         self._service_task = asyncio.create_task(service.run_forever())
 
         self.set_interval(0.5, self._refresh_ui)
@@ -147,6 +155,30 @@ class HackmeTUI(App[None]):
     def _refresh_ui(self) -> None:
         self._refresh_header()
         self._refresh_pr_panel()
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = event.value.strip()
+        if not value:
+            return
+        pr_number = self._parse_pr_number(value)
+        if pr_number is None:
+            logging.getLogger(__name__).warning("Cannot parse PR: %s", value)
+            return
+        if self._service is None:
+            return
+        try:
+            await self._service.request_pr(pr_number)
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to request PR #%s", pr_number)
+
+    @staticmethod
+    def _parse_pr_number(value: str) -> int | None:
+        import re
+
+        m = re.search(r"(\d+)", value)
+        if m:
+            return int(m.group(1))
+        return None
 
     def _refresh_header(self) -> None:
         count = len(self._pr_entries)
