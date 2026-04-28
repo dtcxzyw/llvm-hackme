@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from llvm_hackme.config import Config
-from llvm_hackme.llm_review import OpenAIPatchReviewer
+from llvm_hackme.llm_review import OpenAIPatchReviewer, ReviewRetryableError
 
 
 @pytest.fixture
@@ -30,6 +30,7 @@ def reviewer() -> OpenAIPatchReviewer:
             max_patch_chars=1000,
             patch_chunk_chars=500,
             max_patch_chunks=4,
+            max_review_retries=2,
             opt_memory_limit_bytes=1024**3,
             max_fuzz_parallelism=1,
             build_jobs=32,
@@ -85,6 +86,54 @@ class TestOpenAIPatchReviewer:
         result = await reviewer.review("small patch")
         assert result.accepted is False
         assert "failed" in result.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_review_empty_response_raises_retryable(
+        self, reviewer: OpenAIPatchReviewer
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=None))]
+        reviewer._client.chat.completions.create = AsyncMock(return_value=mock_response)
+        with pytest.raises(ReviewRetryableError):
+            await reviewer.review("small patch")
+
+    @pytest.mark.asyncio
+    async def test_review_unparseable_response_raises_retryable(
+        self, reviewer: OpenAIPatchReviewer
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(message=MagicMock(content="garbage output\nno valid keyword"))
+        ]
+        reviewer._client.chat.completions.create = AsyncMock(return_value=mock_response)
+        with pytest.raises(ReviewRetryableError):
+            await reviewer.review("small patch")
+
+    @pytest.mark.asyncio
+    async def test_review_empty_choices_raises_retryable(
+        self, reviewer: OpenAIPatchReviewer
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.choices = []
+        reviewer._client.chat.completions.create = AsyncMock(return_value=mock_response)
+        with pytest.raises(ReviewRetryableError):
+            await reviewer.review("small patch")
+
+    @pytest.mark.asyncio
+    async def test_review_recovers_on_retry(
+        self, reviewer: OpenAIPatchReviewer
+    ) -> None:
+        empty_response = MagicMock()
+        empty_response.choices = [MagicMock(message=MagicMock(content=None))]
+        valid_response = MagicMock()
+        valid_response.choices = [
+            MagicMock(message=MagicMock(content="innocuous\nLooks fine."))
+        ]
+        reviewer._client.chat.completions.create = AsyncMock(
+            side_effect=[empty_response, valid_response]
+        )
+        result = await reviewer.review("small patch")
+        assert result.accepted is True
 
     def test_chunk_patch_no_chunking(self, reviewer: OpenAIPatchReviewer) -> None:
         chunks = reviewer._chunk_patch("small patch")
