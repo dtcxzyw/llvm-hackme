@@ -207,7 +207,7 @@ class GitHubClient:
             "GET",
             f"/repos/{self.repository}/pulls/{pull_number}",
         )
-        payload = response.json()
+        payload = response.json_payload
         return str(payload["head"]["sha"])
 
     async def list_issue_comments(self, issue_number: int) -> list[IssueComment]:
