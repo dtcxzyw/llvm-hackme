@@ -22,7 +22,7 @@ class TestPREntry:
         line = entry.format_line()
         assert "IN PROGRESS" in line
         assert "2026-04-28 14:30" in line
-        assert "https://gh/pr/42" in line
+        assert "#42" in line
         assert "Fix foo" in line
 
     def test_format_line_bug_found(self) -> None:
@@ -36,7 +36,7 @@ class TestPREntry:
         line = entry.format_line()
         assert "BUG FOUND" in line
         assert "2026-04-28 14:30" in line
-        assert "https://gh/pr/7" in line
+        assert "#7" in line
         assert "Fix bar" in line
 
     def test_format_line_passed(self) -> None:
@@ -50,7 +50,7 @@ class TestPREntry:
         line = entry.format_line()
         assert "PASSED" in line
         assert "2026-04-28 14:30" in line
-        assert "https://gh/pr/100" in line
+        assert "#100" in line
         assert "Fix baz" in line
 
     def test_format_line_unknown_status(self) -> None:
@@ -63,7 +63,16 @@ class TestPREntry:
         )
         assert "custom" in entry.format_line()
         assert "2026-04-28 14:30" in entry.format_line()
-        assert "https://gh/pr/1" in entry.format_line()
+
+    def test_format_line_empty_status_fallback(self) -> None:
+        entry = PREntry(
+            pr_number=5,
+            pr_url="",
+            pr_title="T",
+            status="",
+            updated_at=_FIXED_TS,
+        )
+        assert "???" in entry.format_line()
 
 
 class TestTUIInit:
