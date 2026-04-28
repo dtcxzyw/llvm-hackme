@@ -309,6 +309,7 @@ class HackmeService:
                                 verified = None
 
                     if verified is None:
+                        await self._emit_status(pr, "hacking")
                         verified, hack_submissions = await self._run_hack_agent(
                             update, toolchain, pass_name
                         )
