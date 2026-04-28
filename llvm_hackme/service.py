@@ -367,9 +367,6 @@ class HackmeService:
         config = self._config
         hack_dir = config.hack_work_dir
         hack_dir.mkdir(parents=True, exist_ok=True)
-        for child in hack_dir.iterdir():
-            if child.is_file():
-                child.unlink()
 
         patch_file = hack_dir / "patch.diff"
         patch_file.write_text(update.patch)
@@ -412,8 +409,10 @@ class HackmeService:
         LOGGER.info("Launching hack agent for PR #%s", update.pr.number)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         log_name = f"opencode-pr{update.pr.number}-{ts}.log"
+        logs_dir = config.logs_dir
+        logs_dir.mkdir(parents=True, exist_ok=True)
         opencode_log = open(  # noqa: ASYNC230,SIM115 — fd for subprocess
-            str(hack_dir / log_name), "w"
+            str(logs_dir / log_name), "w"
         )
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -608,7 +607,7 @@ class HackmeService:
 
     async def _log_cleanup_loop(self) -> None:
         retention = timedelta(days=10)
-        patterns = ("pr-*.log", "baseline-update-*.log")
+        patterns = ("pr-*.log", "baseline-update-*.log", "opencode-pr*.log")
         while True:
             try:
                 now = datetime.now(timezone.utc)
