@@ -24,6 +24,7 @@ from llvm_hackme.config import Config
 from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
+from llvm_hackme.log_render import render_opencode_log
 from llvm_hackme.models import BugKind, PullRequest, PullRequestUpdate, Reproducer
 from llvm_hackme.passes import guess_pass_name
 from llvm_hackme.reporting import report_result
@@ -411,8 +412,9 @@ class HackmeService:
         log_name = f"opencode-pr{update.pr.number}-{ts}.log"
         logs_dir = config.logs_dir
         logs_dir.mkdir(parents=True, exist_ok=True)
+        opencode_log_path = logs_dir / log_name
         opencode_log = open(  # noqa: ASYNC230,SIM115 — fd for subprocess
-            str(logs_dir / log_name), "w"
+            str(opencode_log_path), "w"
         )
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -438,6 +440,7 @@ class HackmeService:
         except Exception:
             opencode_log.close()
             self._cleanup_pipes(submit_pipe, response_pipe)
+            _render_recent_log(opencode_log_path)
             raise
 
         result_holder: dict[str, Reproducer | None] = {}
@@ -529,6 +532,7 @@ class HackmeService:
                 LOGGER.warning("Timed out waiting for hack pipe to close")
             self._cleanup_pipes(submit_pipe, response_pipe)
             opencode_log.close()
+            _render_recent_log(opencode_log_path)
 
         result = result_holder.get("reproducer")
         if result is not None:
@@ -629,6 +633,14 @@ class HackmeService:
             except Exception:
                 LOGGER.exception("Log cleanup iteration failed")
             await asyncio.sleep(3600)
+
+
+def _render_recent_log(json_path: Path) -> None:
+    try:
+        txt_path = render_opencode_log(json_path)
+        LOGGER.debug("Rendered opencode log → %s", txt_path.name)
+    except Exception:
+        LOGGER.exception("Failed to render opencode log %s", json_path.name)
 
 
 def _opt_args_from_command(command: list[str]) -> list[str]:
