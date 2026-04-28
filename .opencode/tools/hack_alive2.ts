@@ -1,3 +1,4 @@
+import fs from "node:fs"
 import path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 
@@ -95,13 +96,7 @@ export default tool({
 function loadContext() {
   const f = process.env.HACK_CONTEXT_FILE
   if (!f) throw new Error("HACK_CONTEXT_FILE not set")
-  try {
-    return JSON.parse(new TextDecoder().decode(Bun.file(f).bytes()))
-  } catch {
-    const readFile = (Bun as any).readFileSync || Bun.file
-    const buf: any = typeof readFile === "function" ? readFile(f) : Bun.file(f).bytes()
-    return JSON.parse(decodeBuf(buf))
-  }
+  return JSON.parse(fs.readFileSync(f, "utf-8"))
 }
 
 function writeTemp(workDir: string, ir: string): string | undefined {
