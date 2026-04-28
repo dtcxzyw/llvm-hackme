@@ -25,6 +25,7 @@ def _setup_logging(logs_dir: Path) -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
     handler = TimedRotatingFileHandler(
         str(logs_dir / "hackme.log"),
         when="midnight",
@@ -34,6 +35,19 @@ def _setup_logging(logs_dir: Path) -> None:
     )
     handler.setFormatter(fmt)
     root.addHandler(handler)
+
+    comment_logger = logging.getLogger("hackme.comment")
+    comment_logger.setLevel(logging.INFO)
+    comment_logger.propagate = False
+    comment_handler = TimedRotatingFileHandler(
+        str(logs_dir / "comment.log"),
+        when="midnight",
+        interval=1,
+        backupCount=_LOG_RETENTION_DAYS,
+        encoding="utf-8",
+    )
+    comment_handler.setFormatter(fmt)
+    comment_logger.addHandler(comment_handler)
 
 
 def _validate_environment(config: Config) -> None:

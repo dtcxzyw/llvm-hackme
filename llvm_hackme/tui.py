@@ -31,10 +31,13 @@ class _RichLogHandler(logging.Handler):
 
 
 STATUS_LABELS: dict[str, str] = {
+    "waiting_for_build_lock": "WAITING FOR BUILD",
+    "building": "BUILDING",
     "in_progress": "IN PROGRESS",
     "bug_found": "BUG FOUND",
     "passed": "PASSED",
     "review_rejected": "REVIEW REJECTED",
+    "pending": "PENDING",
 }
 
 

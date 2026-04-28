@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import TYPE_CHECKING
 
 from llvm_hackme.github import GitHubClient, IssueComment
@@ -11,6 +12,33 @@ if TYPE_CHECKING:
     pass
 
 LOGGER = logging.getLogger(__name__)
+COMMENT_LOGGER = logging.getLogger("hackme.comment")
+
+
+def _audit_comment(
+    action: str,
+    pr_number: int,
+    state_str: str,
+    body: str,
+    *,
+    comment_id: int | None = None,
+    success: bool,
+    error: str | None = None,
+) -> None:
+    status = "SUCCESS" if success else "FAILED"
+    cid = f"#{comment_id}" if comment_id is not None else "new"
+    COMMENT_LOGGER.info(
+        "PR #%s %s %s (%s) — %s\n%s",
+        pr_number,
+        action,
+        cid,
+        state_str,
+        status,
+        body.strip(),
+    )
+    if error:
+        COMMENT_LOGGER.info("  Error: %s", error)
+
 
 _REPO_URL = "https://github.com/dtcxzyw/llvm-hackme"
 _LLVM_HACKME_LINK = f"[llvm-hackme]({_REPO_URL})"
@@ -167,7 +195,27 @@ async def report_result(
             state.save_reproducer(pr_update.pr.number, reproducer)
             if old_reproducer is not None and old_reproducer.kind == reproducer.kind:
                 body = make_comment_body(CommentState.STILL_REPRODUCES, reproducer)
-                await github.update_issue_comment(existing.id, body)
+                try:
+                    await github.update_issue_comment(existing.id, body)
+                except Exception:
+                    _audit_comment(
+                        "UPDATED",
+                        pr_update.pr.number,
+                        "still_reproduces",
+                        body,
+                        comment_id=existing.id,
+                        success=False,
+                        error=str(sys.exc_info()[1]),
+                    )
+                    raise
+                _audit_comment(
+                    "UPDATED",
+                    pr_update.pr.number,
+                    "still_reproduces",
+                    body,
+                    comment_id=existing.id,
+                    success=True,
+                )
                 LOGGER.info(
                     "Updated existing comment for PR #%s (still_reproduces)",
                     pr_update.pr.number,
@@ -175,7 +223,27 @@ async def report_result(
                 return
 
             body = make_comment_body(CommentState.BUG_FOUND, reproducer)
-            updated = await github.update_issue_comment(existing.id, body)
+            try:
+                updated = await github.update_issue_comment(existing.id, body)
+            except Exception:
+                _audit_comment(
+                    "UPDATED",
+                    pr_update.pr.number,
+                    "bug_found",
+                    body,
+                    comment_id=existing.id,
+                    success=False,
+                    error=str(sys.exc_info()[1]),
+                )
+                raise
+            _audit_comment(
+                "UPDATED",
+                pr_update.pr.number,
+                "bug_found",
+                body,
+                comment_id=existing.id,
+                success=True,
+            )
             LOGGER.info(
                 "Updated existing comment for PR #%s (bug_found - new reproducer)",
                 pr_update.pr.number,
@@ -197,7 +265,27 @@ async def report_result(
                 body = make_comment_body(
                     CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH, None
                 )
-                await github.update_issue_comment(existing.id, body)
+                try:
+                    await github.update_issue_comment(existing.id, body)
+                except Exception:
+                    _audit_comment(
+                        "UPDATED",
+                        pr_update.pr.number,
+                        "no_issue_found",
+                        body,
+                        comment_id=existing.id,
+                        success=False,
+                        error=str(sys.exc_info()[1]),
+                    )
+                    raise
+                _audit_comment(
+                    "UPDATED",
+                    pr_update.pr.number,
+                    "no_issue_found",
+                    body,
+                    comment_id=existing.id,
+                    success=True,
+                )
                 state.clear_reproducer(pr_update.pr.number)
                 LOGGER.info(
                     "Updated existing comment for PR #%s"
@@ -211,8 +299,28 @@ async def report_result(
 
     body = make_comment_body(CommentState.BUG_FOUND, reproducer)
     state.save_reproducer(pr_update.pr.number, reproducer)
-    created = await github.create_issue_comment(pr_update.pr.number, body)
+    try:
+        created = await github.create_issue_comment(pr_update.pr.number, body)
+    except Exception:
+        _audit_comment(
+            "CREATED",
+            pr_update.pr.number,
+            "bug_found",
+            body,
+            comment_id=None,
+            success=False,
+            error=str(sys.exc_info()[1]),
+        )
+        raise
     state.save_comment(pr_update.pr.number, created.id, created.html_url)
+    _audit_comment(
+        "CREATED",
+        pr_update.pr.number,
+        "bug_found",
+        body,
+        comment_id=created.id,
+        success=True,
+    )
     LOGGER.info("Created new comment for PR #%s (bug_found)", pr_update.pr.number)
 
     if pr_update.pr.author_login != service_login:

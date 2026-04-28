@@ -88,6 +88,7 @@ class HackmeService:
         await asyncio.gather(
             self._scan_loop(),
             self._baseline_update_loop(),
+            self._log_cleanup_loop(),
         )
 
     async def _scan_loop(self) -> None:
@@ -419,6 +420,7 @@ class HackmeService:
             )
         except Exception:
             opencode_log.close()
+            self._cleanup_pipes(submit_pipe, response_pipe)
             raise
 
         result_holder: dict[str, dict] = {}
@@ -514,7 +516,7 @@ class HackmeService:
         try:
             await self._status_callback(pr.number, pr.title, pr.html_url, status)
         except Exception:
-            LOGGER.debug("Status callback failed", exc_info=True)
+            LOGGER.warning("Status callback failed", exc_info=True)
 
     async def _maybe_backoff(self, pr_number: int, pr: PullRequest) -> None:
         count = self._state.increment_retry(pr_number)
@@ -570,6 +572,31 @@ class HackmeService:
             finally:
                 set_command_log_path(None)
             await asyncio.sleep(self._config.baseline_update_interval_seconds)
+
+    async def _log_cleanup_loop(self) -> None:
+        retention = timedelta(days=10)
+        patterns = ("pr-*.log", "baseline-update-*.log")
+        while True:
+            try:
+                now = datetime.now(timezone.utc)
+                cutoff = now - retention
+                logs_dir = self._config.logs_dir
+                if not logs_dir.is_dir():
+                    continue
+                for pattern in patterns:
+                    for log_file in sorted(logs_dir.glob(pattern)):
+                        try:
+                            mtime = datetime.fromtimestamp(
+                                log_file.stat().st_mtime, tz=timezone.utc
+                            )
+                            if mtime < cutoff:
+                                log_file.unlink()
+                                LOGGER.debug("Cleaned up old log: %s", log_file.name)
+                        except OSError:
+                            pass
+            except Exception:
+                LOGGER.exception("Log cleanup iteration failed")
+            await asyncio.sleep(3600)
 
 
 def _opt_args_from_command(command: list[str]) -> list[str]:
