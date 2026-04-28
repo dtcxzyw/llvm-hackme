@@ -79,8 +79,7 @@ class HackmeTUI(App[None]):
     }
 
     #input {
-        height: 1;
-        dock: bottom;
+        height: 3;
     }
     """
 
