@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
 from llvm_hackme.tui import HackmeTUI, PREntry
+
+_FIXED_TS = datetime(2026, 4, 28, 14, 30, tzinfo=timezone.utc)
 
 
 class TestPREntry:
@@ -14,11 +17,13 @@ class TestPREntry:
             pr_url="https://gh/pr/42",
             pr_title="Fix foo",
             status="in_progress",
+            updated_at=_FIXED_TS,
         )
         line = entry.format_line()
         assert "PR #   42" in line
         assert "IN PROGRESS" in line
         assert "https://gh/pr/42" in line
+        assert "2026-04-28 14:30" in line
 
     def test_format_line_bug_found(self) -> None:
         entry = PREntry(
@@ -26,10 +31,12 @@ class TestPREntry:
             pr_url="https://gh/pr/7",
             pr_title="Fix bar",
             status="bug_found",
+            updated_at=_FIXED_TS,
         )
         line = entry.format_line()
         assert "BUG FOUND" in line
         assert "https://gh/pr/7" in line
+        assert "2026-04-28 14:30" in line
 
     def test_format_line_passed(self) -> None:
         entry = PREntry(
@@ -37,9 +44,11 @@ class TestPREntry:
             pr_url="https://gh/pr/100",
             pr_title="Fix baz",
             status="passed",
+            updated_at=_FIXED_TS,
         )
         line = entry.format_line()
         assert "PASSED" in line
+        assert "2026-04-28 14:30" in line
 
     def test_format_line_unknown_status(self) -> None:
         entry = PREntry(
@@ -47,8 +56,10 @@ class TestPREntry:
             pr_url="https://gh/pr/1",
             pr_title="X",
             status="custom",
+            updated_at=_FIXED_TS,
         )
         assert "custom" in entry.format_line()
+        assert "2026-04-28 14:30" in entry.format_line()
 
 
 class TestTUIInit:

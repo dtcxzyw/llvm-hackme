@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from textual.app import App, ComposeResult
 from textual.widgets import RichLog, Static
@@ -47,10 +48,12 @@ class PREntry:
     pr_url: str
     pr_title: str
     status: str
+    updated_at: datetime
 
     def format_line(self) -> str:
         label = STATUS_LABELS.get(self.status, self.status)
-        return f"PR #{self.pr_number:>5} [{label:>16}] {self.pr_url}"
+        ts = self.updated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return f"[{ts}] PR #{self.pr_number:>5} [{label:>16}] {self.pr_url}"
 
 
 class HackmeTUI(App[None]):
@@ -117,9 +120,15 @@ class HackmeTUI(App[None]):
         logging.getLogger().addHandler(handler)
 
         async def _status_callback(
-            pr_number: int, pr_title: str, pr_url: str, status: str
+            pr_number: int,
+            pr_title: str,
+            pr_url: str,
+            status: str,
+            updated_at: datetime,
         ) -> None:
-            self._pr_entries[pr_number] = PREntry(pr_number, pr_url, pr_title, status)
+            self._pr_entries[pr_number] = PREntry(
+                pr_number, pr_url, pr_title, status, updated_at
+            )
 
         service = HackmeService(
             self._config,
@@ -148,7 +157,7 @@ class HackmeTUI(App[None]):
             self.query_one("#pr-panel", Static).update("No PRs processed yet.")
             return
         entries = sorted(
-            self._pr_entries.values(), key=lambda e: e.pr_number, reverse=True
+            self._pr_entries.values(), key=lambda e: e.updated_at, reverse=True
         )[:10]
         lines = [entry.format_line() for entry in entries]
         self.query_one("#pr-panel", Static).update("\n".join(lines))

@@ -33,7 +33,7 @@ from llvm_hackme.verification import verify_reproducer
 
 LOGGER = logging.getLogger(__name__)
 
-StatusCallback = Callable[[int, str, str, str], Awaitable[None]]
+StatusCallback = Callable[[int, str, str, str, datetime], Awaitable[None]]
 
 
 def _log_command_error(exc: BaseException, context: str) -> None:
@@ -545,7 +545,9 @@ class HackmeService:
         if self._status_callback is None:
             return
         try:
-            await self._status_callback(pr.number, pr.title, pr.html_url, status)
+            await self._status_callback(
+                pr.number, pr.title, pr.html_url, status, pr.updated_at
+            )
         except Exception:
             LOGGER.warning("Status callback failed", exc_info=True)
 
