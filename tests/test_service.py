@@ -176,7 +176,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         service._reviewer = reviewer_mock
         service._builds = builds_mock
         service._fuzzer = fuzzer_mock
-        service._run_hack_agent = AsyncMock(return_value=None)
+        service._run_hack_agent = AsyncMock(return_value=(None, []))
         service._build_lock = MagicMock()
         service._build_lock.__aenter__ = AsyncMock()
         service._build_lock.__aexit__ = AsyncMock(return_value=False)

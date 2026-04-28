@@ -194,6 +194,9 @@ class HackmeService:
                 await self._emit_status(pr, "passed")
                 return
 
+            fuzz_mutation_count = 0
+            hack_submissions: list[dict] = []
+
             await self._emit_status(pr, "waiting_for_build_lock")
             async with self._build_lock:
                 self._pr_in_build.add(pr_number)
@@ -283,6 +286,7 @@ class HackmeService:
                             pr.head_sha,
                             toolchain,
                         )
+                        fuzz_mutation_count = fuzz_result.mutation_count
                         reproducer = fuzz_result.reproducer
                         if reproducer is not None:
                             try:
@@ -301,7 +305,7 @@ class HackmeService:
                                 verified = None
 
                     if verified is None:
-                        verified = await self._run_hack_agent(
+                        verified, hack_submissions = await self._run_hack_agent(
                             update, toolchain, pass_name
                         )
                 finally:
@@ -324,6 +328,19 @@ class HackmeService:
                 )
 
             LOGGER.info("PR #%s processing complete", pr_number)
+
+            eval_summary = {
+                "pr_number": pr_number,
+                "head_sha": pr.head_sha[:12],
+                "pass_name": pass_name,
+                "fuzz_mutation_count": fuzz_mutation_count,
+                "hack_submission_count": len(hack_submissions),
+                "hack_submissions": hack_submissions,
+                "result": "bug_found" if verified is not None else "passed",
+            }
+            if verified is not None:
+                eval_summary["bug_kind"] = verified.kind.value
+            append_command_log_message(json.dumps(eval_summary))
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -345,7 +362,7 @@ class HackmeService:
         update: PullRequestUpdate,
         toolchain: ToolchainPaths,
         pass_name: str,
-    ) -> Reproducer | None:
+    ) -> tuple[Reproducer | None, list[dict]]:
         config = self._config
         hack_dir = config.hack_work_dir
         hack_dir.mkdir(parents=True, exist_ok=True)
@@ -381,7 +398,7 @@ class HackmeService:
         if opencode_bin is None:
             LOGGER.warning("opencode binary not found, skipping hack agent")
             self._cleanup_pipes(submit_pipe, response_pipe)
-            return None
+            return None, []
 
         hack_prompt = (
             "You are the hack agent.  Use the `hack_context` tool first to get "
@@ -423,7 +440,8 @@ class HackmeService:
             self._cleanup_pipes(submit_pipe, response_pipe)
             raise
 
-        result_holder: dict[str, dict] = {}
+        result_holder: dict[str, Reproducer | None] = {}
+        submissions: list[dict] = []
         pipe_done = asyncio.Event()
 
         async def pipe_listener() -> None:
@@ -433,34 +451,46 @@ class HackmeService:
                     with open(submit_pipe, encoding="utf-8") as reader:
                         return reader.readline().strip()
 
-                raw = await asyncio.to_thread(_read_pipe)
-                if not raw:
-                    return
-                payload = json.loads(raw)
-                hack_reproducer = await _hack_verify(
-                    payload,
-                    hack_dir,
-                    toolchain,
-                    update,
-                    memory_limit_bytes=config.opt_memory_limit_bytes,
-                )
+                while True:
+                    raw = await asyncio.to_thread(_read_pipe)
+                    if not raw:
+                        break
+                    payload = json.loads(raw)
+                    sub_record: dict = {
+                        "kind": payload.get("kind", "crash"),
+                        "description": payload.get("description", ""),
+                        "verified": False,
+                    }
+                    hack_reproducer = await _hack_verify(
+                        payload,
+                        hack_dir,
+                        toolchain,
+                        update,
+                        memory_limit_bytes=config.opt_memory_limit_bytes,
+                    )
 
-                response = {"success": False, "reason": "unknown"}
-                if hack_reproducer is not None:
-                    response = {"success": True}
-                    result_holder["reproducer"] = hack_reproducer
+                    response = {"success": False, "reason": "unknown"}
+                    if hack_reproducer is not None:
+                        response = {"success": True}
+                        result_holder["reproducer"] = hack_reproducer
+                        sub_record["verified"] = True
 
-                with contextlib.suppress(OSError):
+                    submissions.append(sub_record)
 
-                    def _write_response() -> None:
-                        with open(str(response_pipe), "w", encoding="utf-8") as wf:
-                            wf.write(json.dumps(response) + "\n")
+                    response_json = json.dumps(response) + "\n"
 
-                    await asyncio.to_thread(_write_response)
+                    with contextlib.suppress(OSError):
 
-                if response.get("success"):
-                    with contextlib.suppress(ProcessLookupError):
-                        proc.kill()
+                        def _write_response(data: str = response_json) -> None:
+                            with open(str(response_pipe), "w", encoding="utf-8") as wf:
+                                wf.write(data)
+
+                        await asyncio.to_thread(_write_response)
+
+                    if response.get("success"):
+                        with contextlib.suppress(ProcessLookupError):
+                            proc.kill()
+                        break
             except Exception:
                 LOGGER.exception("Hack pipe listener failed")
             finally:
@@ -503,7 +533,7 @@ class HackmeService:
         result = result_holder.get("reproducer")
         if result is not None:
             LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
-        return result
+        return result, submissions
 
     def _cleanup_pipes(self, *pipes: Path) -> None:
         for p in pipes:
