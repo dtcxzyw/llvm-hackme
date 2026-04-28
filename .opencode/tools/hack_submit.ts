@@ -1,3 +1,4 @@
+import fs from "node:fs"
 import { tool } from "@opencode-ai/plugin"
 
 const MAX_IR_BYTES = 10 * 1024 * 1024
@@ -39,13 +40,16 @@ export default tool({
     })
 
     try {
-      const submitFd = Bun.openSync(submitPipe, { flags: "w" })
-      Bun.writeSync(submitFd, payload + "\n")
-      Bun.closeSync(submitFd)
+      const data = new TextEncoder().encode(payload + "\n")
+      const wfd = fs.openSync(submitPipe, "w")
+      fs.writeSync(wfd, data)
+      fs.closeSync(wfd)
 
-      const respFd = Bun.openSync(responsePipe, { flags: "r" })
-      const raw = Bun.readFileSync(respFd).toString()
-      Bun.closeSync(respFd)
+      const rfd = fs.openSync(responsePipe, "r")
+      const buf = Buffer.alloc(65536)
+      const n = fs.readSync(rfd, buf, 0, buf.length)
+      fs.closeSync(rfd)
+      const raw = buf.toString("utf-8", 0, n).trim()
 
       const resp = JSON.parse(raw)
       if (resp.success) {

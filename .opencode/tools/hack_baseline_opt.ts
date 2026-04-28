@@ -33,8 +33,8 @@ export default tool({
     if (proc.exitCode === ENOSPC) {
       return JSON.stringify({ error: "disk_full", crashed: false })
     }
-    const stdout = new TextDecoder().decode(proc.stdout)
-    const stderr = new TextDecoder().decode(proc.stderr)
+    const stdout = decodeBuf(proc.stdout)
+    const stderr = decodeBuf(proc.stderr)
     const crashed = proc.exitCode !== 0
     return JSON.stringify({
       exit_code: proc.exitCode,
@@ -49,7 +49,7 @@ export default tool({
 function loadContext() {
   const f = process.env.HACK_CONTEXT_FILE
   if (!f) throw new Error("HACK_CONTEXT_FILE not set")
-  return JSON.parse(new TextDecoder().decode(Bun.file(f).bytes()))
+  return JSON.parse(decodeBuf(Bun.file(f).bytes()))
 }
 
 function writeTemp(workDir: string, ir: string): string | undefined {
@@ -76,4 +76,13 @@ function minimalEnv() {
     LANG: process.env.LANG || "C.UTF-8",
     LC_ALL: process.env.LC_ALL || "C.UTF-8",
   }
+}
+
+function decodeBuf(buf: any): string {
+  if (typeof buf === "string") return buf
+  if (Buffer.isBuffer(buf)) return buf.toString()
+  if (buf instanceof Uint8Array || ArrayBuffer.isView(buf)) {
+    return new TextDecoder().decode(buf)
+  }
+  return String(buf ?? "")
 }

@@ -39,9 +39,17 @@ export default tool({
     })
     if (baseProc.exitCode !== 0 && baseProc.exitCode !== ENOSPC) {
       tryCleanup(tmp, baseOut, prOut)
-      return JSON.stringify({ baseline_crashed: true, baseline_stderr: new TextDecoder().decode(baseProc.stderr).slice(-4000), correct: false, miscompile: false })
+      return JSON.stringify({
+        baseline_crashed: true,
+        baseline_stderr: decodeBuf(baseProc.stderr).slice(-4000),
+        correct: false,
+        miscompile: false,
+      })
     }
-    if (baseProc.exitCode === ENOSPC) { tryCleanup(tmp, baseOut, prOut); return JSON.stringify({ error: "disk_full" }) }
+    if (baseProc.exitCode === ENOSPC) {
+      tryCleanup(tmp, baseOut, prOut)
+      return JSON.stringify({ error: "disk_full" })
+    }
 
     const prProc = Bun.spawnSync({
       cmd: memoryWrap([ctx.pr_opt, "-S", "-o", prOut, tmp, ...extra]),
@@ -49,9 +57,17 @@ export default tool({
     })
     if (prProc.exitCode !== 0 && prProc.exitCode !== ENOSPC) {
       tryCleanup(tmp, baseOut, prOut)
-      return JSON.stringify({ pr_crashed: true, pr_stderr: new TextDecoder().decode(prProc.stderr).slice(-4000), correct: false, miscompile: false })
+      return JSON.stringify({
+        pr_crashed: true,
+        pr_stderr: decodeBuf(prProc.stderr).slice(-4000),
+        correct: false,
+        miscompile: false,
+      })
     }
-    if (prProc.exitCode === ENOSPC) { tryCleanup(tmp, baseOut, prOut); return JSON.stringify({ error: "disk_full" }) }
+    if (prProc.exitCode === ENOSPC) {
+      tryCleanup(tmp, baseOut, prOut)
+      return JSON.stringify({ error: "disk_full" })
+    }
 
     const aliveProc = Bun.spawnSync({
       cmd: memoryWrap([ctx.alive_tv, "--smt-to=10000", "--disable-undef-input", baseOut, prOut]),
@@ -59,26 +75,38 @@ export default tool({
     })
     tryCleanup(tmp, baseOut, prOut)
 
-    const aliveOut = new TextDecoder().decode(aliveProc.stdout)
-    const aliveErr = new TextDecoder().decode(aliveProc.stderr)
+    const aliveOut = decodeBuf(aliveProc.stdout)
+    const aliveErr = decodeBuf(aliveProc.stderr)
     const combined = aliveOut + aliveErr
-    const correct = combined.includes("0 incorrect transformations") && combined.includes("Transformation seems to be correct")
+    const correct = combined.includes("0 incorrect transformations") &&
+      combined.includes("Transformation seems to be correct")
     const positive = /[1-9]\d* incorrect transformations?/.test(combined)
     const miscompile = !correct && positive
 
-    return JSON.stringify({ exit_code: aliveProc.exitCode, correct, miscompile, counterexample: combined.slice(-8000) })
+    return JSON.stringify({
+      exit_code: aliveProc.exitCode,
+      correct,
+      miscompile,
+      counterexample: combined.slice(-8000),
+    })
   },
 })
 
 function loadContext() {
   const f = process.env.HACK_CONTEXT_FILE
   if (!f) throw new Error("HACK_CONTEXT_FILE not set")
-  return JSON.parse(new TextDecoder().decode(Bun.file(f).bytes()))
+  return JSON.parse(decodeBuf(Bun.file(f).bytes()))
 }
 
 function writeTemp(workDir: string, ir: string): string | undefined {
-  const f = path.join(workDir, `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ll`)
-  try { Bun.writeSync(f, ir); return f } catch (e: any) {
+  const f = path.join(
+    workDir,
+    `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ll`,
+  )
+  try {
+    Bun.writeSync(f, ir)
+    return f
+  } catch (e: any) {
     if (e?.code === "ENOSPC") return "disk_full"
     return `Failed to write temp file: ${e}`
   }
@@ -90,9 +118,26 @@ function parseArgs(raw: string): string[] {
 }
 
 function tryCleanup(...files: string[]): void {
-  for (const f of files) { try { Bun.file(f).delete() } catch {} }
+  for (const f of files) {
+    try { Bun.file(f).delete() } catch {}
+  }
 }
 
 function minimalEnv() {
-  return { HOME: process.env.HOME || "", PATH: process.env.PATH || "", TMPDIR: process.env.TMPDIR || "/tmp", LANG: process.env.LANG || "C.UTF-8", LC_ALL: process.env.LC_ALL || "C.UTF-8" }
+  return {
+    HOME: process.env.HOME || "",
+    PATH: process.env.PATH || "",
+    TMPDIR: process.env.TMPDIR || "/tmp",
+    LANG: process.env.LANG || "C.UTF-8",
+    LC_ALL: process.env.LC_ALL || "C.UTF-8",
+  }
+}
+
+function decodeBuf(buf: any): string {
+  if (typeof buf === "string") return buf
+  if (Buffer.isBuffer(buf)) return buf.toString()
+  if (buf instanceof Uint8Array || ArrayBuffer.isView(buf)) {
+    return new TextDecoder().decode(buf)
+  }
+  return String(buf ?? "")
 }

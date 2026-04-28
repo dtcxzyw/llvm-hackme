@@ -14,8 +14,8 @@ export default tool({
       stderr: "pipe",
       env: minimalEnv(),
     })
-    const stdout = new TextDecoder().decode(proc.stdout)
-    const stderr = new TextDecoder().decode(proc.stderr)
+    const stdout = decodeBuf(proc.stdout)
+    const stderr = decodeBuf(proc.stderr)
     const combined = (stdout + stderr).trim()
     const sat = combined.includes("sat") && !combined.includes("unsat")
     const unsat = combined.includes("unsat")
@@ -39,4 +39,13 @@ function minimalEnv() {
     LANG: process.env.LANG || "C.UTF-8",
     LC_ALL: process.env.LC_ALL || "C.UTF-8",
   }
+}
+
+function decodeBuf(buf: any): string {
+  if (typeof buf === "string") return buf
+  if (Buffer.isBuffer(buf)) return buf.toString()
+  if (buf instanceof Uint8Array || ArrayBuffer.isView(buf)) {
+    return new TextDecoder().decode(buf)
+  }
+  return String(buf ?? "")
 }
