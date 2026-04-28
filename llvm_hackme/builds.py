@@ -111,7 +111,9 @@ class BuildManager:
         await self._sync_pr_worktree(baseline_revision)
         if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
             raise RuntimeError(f"Invalid head SHA: {head_sha!r}")
-        patch_path = self.config.work_dir / f"pr-{head_sha}.patch"
+        patch_dir = self.config.work_dir / "patches"
+        patch_dir.mkdir(parents=True, exist_ok=True)
+        patch_path = patch_dir / f"pr-{head_sha}.patch"
         patch_path.write_text(patch)
         full_patch_applied = await self._apply_patch(patch_path, baseline_revision)
         LOGGER.info("PR worktree ready (full patch applied: %s)", full_patch_applied)
