@@ -198,7 +198,7 @@ class GitHubClient:
         response = await self._request(
             "GET",
             f"/repos/{self.repository}/pulls/{pull_number}",
-            headers={"Accept": "application/vnd.github.v3.patch"},
+            headers={"Accept": "application/vnd.github.v3.diff"},
         )
         return response.text
 
