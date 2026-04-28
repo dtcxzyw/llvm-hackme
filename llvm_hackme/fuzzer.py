@@ -244,7 +244,7 @@ class FuzzRunner:
         if reproducer is not None:
             return FuzzResult(reproducer=reproducer, mutation_count=idx)
 
-        return FuzzResult(mutation_count=idx)
+        return FuzzResult(reproducer=None, mutation_count=idx)
 
     async def _fuzz_one(
         self,

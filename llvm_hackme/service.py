@@ -175,6 +175,11 @@ class HackmeService:
         )
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
+        fuzz_mutation_count = 0
+        hack_submissions: list[dict] = []
+        verified: Reproducer | None = None
+        pass_name: str | None = None
+
         try:
             set_command_log_path(log_file)
             LOGGER.info("PR #%s processing started", pr_number)
@@ -193,9 +198,6 @@ class HackmeService:
                 LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
                 await self._emit_status(pr, "passed")
                 return
-
-            fuzz_mutation_count = 0
-            hack_submissions: list[dict] = []
 
             await self._emit_status(pr, "waiting_for_build_lock")
             async with self._build_lock:
@@ -278,7 +280,6 @@ class HackmeService:
                             pr_number,
                         )
 
-                    verified: Reproducer | None = None
                     if full_patch_applied:
                         fuzz_result = await self._fuzzer.run(
                             update.patch,
@@ -328,7 +329,17 @@ class HackmeService:
                 )
 
             LOGGER.info("PR #%s processing complete", pr_number)
-
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            exc = sys.exc_info()[1]
+            LOGGER.exception("Unhandled error processing PR #%s", pr_number)
+            if exc is not None and (
+                is_transient_error(exc) or (hasattr(exc, "retryable") and exc.retryable)  # type: ignore[union-attr]
+            ):
+                transient = True
+                await self._maybe_backoff(pr_number, pr)
+        finally:
             eval_summary = {
                 "pr_number": pr_number,
                 "head_sha": pr.head_sha[:12],
@@ -341,17 +352,7 @@ class HackmeService:
             if verified is not None:
                 eval_summary["bug_kind"] = verified.kind.value
             append_command_log_message(json.dumps(eval_summary))
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            exc = sys.exc_info()[1]
-            LOGGER.exception("Unhandled error processing PR #%s", pr_number)
-            if exc is not None and (
-                is_transient_error(exc) or (hasattr(exc, "retryable") and exc.retryable)  # type: ignore[union-attr]
-            ):
-                transient = True
-                await self._maybe_backoff(pr_number, pr)
-        finally:
+
             set_command_log_path(None)
             if not transient:
                 self._state.reset_retry(pr_number)
