@@ -51,11 +51,9 @@ class PREntry:
     updated_at: datetime
 
     def format_line(self) -> str:
-        label = STATUS_LABELS.get(self.status, self.status)
-        if not label:
-            label = "???"
+        label = STATUS_LABELS.get(self.status, self.status) or "???"
         ts = self.updated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
-        return f"  {label:16}  #{self.pr_number:<7}  {ts}  {self.pr_title}"
+        return f"{label} #{self.pr_number} {ts} {self.pr_title}"
 
 
 class HackmeTUI(App[None]):
@@ -158,8 +156,11 @@ class HackmeTUI(App[None]):
         if not self._pr_entries:
             self.query_one("#pr-panel", Static).update("No PRs processed yet.")
             return
-        entries = sorted(
-            self._pr_entries.values(), key=lambda e: e.updated_at, reverse=True
-        )[:10]
-        lines = [entry.format_line() for entry in entries]
-        self.query_one("#pr-panel", Static).update("\n".join(lines))
+        try:
+            entries = sorted(
+                self._pr_entries.values(), key=lambda e: e.updated_at, reverse=True
+            )[:10]
+            lines = [entry.format_line() for entry in entries]
+            self.query_one("#pr-panel", Static).update("\n".join(lines))
+        except Exception:
+            logging.exception("Failed to refresh PR panel")
