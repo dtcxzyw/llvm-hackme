@@ -27,6 +27,8 @@ _FIXPOINT_RE = re.compile(r"<[^>]*>")
 
 
 def _bare_pass(pass_name: str) -> str:
+    if pass_name.startswith(("instcombine", "default")):
+        return pass_name
     return _FIXPOINT_RE.sub("", pass_name)
 
 
