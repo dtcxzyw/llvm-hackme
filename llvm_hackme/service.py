@@ -532,11 +532,11 @@ class HackmeService:
                 LOGGER.warning("Timed out waiting for hack pipe to close")
             self._cleanup_pipes(submit_pipe, response_pipe)
             opencode_log.close()
-            _render_recent_log(opencode_log_path)
 
         result = result_holder.get("reproducer")
         if result is not None:
             LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
+        _render_recent_log(opencode_log_path, result, submissions)
         return result, submissions
 
     def _cleanup_pipes(self, *pipes: Path) -> None:
@@ -635,12 +635,41 @@ class HackmeService:
             await asyncio.sleep(3600)
 
 
-def _render_recent_log(json_path: Path) -> None:
+def _render_recent_log(
+    json_path: Path,
+    hack_result: Reproducer | None = None,
+    hack_submissions: list[dict] | None = None,
+) -> None:
     try:
         txt_path = render_opencode_log(json_path)
         LOGGER.debug("Rendered opencode log → %s", txt_path.name)
+        if hack_submissions:
+            _append_summary(txt_path, hack_result, hack_submissions)
     except Exception:
         LOGGER.exception("Failed to render opencode log %s", json_path.name)
+
+
+def _append_summary(
+    txt_path: Path, result: Reproducer | None, submissions: list[dict]
+) -> None:
+    lines = ["", "=" * 40, "ANALYSIS RESULTS", "=" * 40]
+    if result is not None:
+        lines.append(f"Bug found: {result.kind.value}")
+        if result.stacktrace:
+            lines.append("Stacktrace:")
+            lines.append(result.stacktrace[:2000])
+        if result.alive2_counterexample:
+            lines.append("Alive2 output:")
+            lines.append(result.alive2_counterexample[:2000])
+    else:
+        reason = f"no bug found in {len(submissions)} submissions"
+        if submissions:
+            kinds = {s.get("kind", "?") for s in submissions}
+            verified = sum(1 for s in submissions if s.get("verified"))
+            reason += f", attempted kinds: {kinds}, verified: {verified}"
+        lines.append(f"Result: {reason}")
+    with txt_path.open("a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
 
 
 def _opt_args_from_command(command: list[str]) -> list[str]:
