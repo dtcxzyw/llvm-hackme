@@ -59,7 +59,6 @@ class TestConfigFromEnv:
         assert config.patch_chunk_chars == 50_000
         assert config.max_patch_chunks == 8
         assert config.opt_memory_limit_bytes == 1024 * 1024 * 1024
-        assert config.max_fuzz_parallelism == 1
 
     def test_custom_values(self) -> None:
         with patch.dict(

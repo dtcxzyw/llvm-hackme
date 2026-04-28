@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
-
-from llvm_hackme.fuzzer import FUNC_RE, FuzzRunner
+from llvm_hackme.fuzzer import FUNC_RE, FuzzRunner, _reduce_crash, _WorkerContext
 
 
 class TestCollectSeeds:
@@ -72,55 +70,91 @@ class TestFuncRE:
 
 
 class TestReduceCrash:
-    @pytest.mark.asyncio
-    async def test_reduce_runs_llvm_reduce_and_returns_output(
-        self, tmp_path: Path
-    ) -> None:
-        runner = FuzzRunner(MagicMock())
+    def test_reduce_runs_llvm_reduce_and_returns_output(self, tmp_path: Path) -> None:
         src = tmp_path / "test.src.ll"
         src.write_text("define void @f() { ret void }\n")
         work = tmp_path / "work"
         work.mkdir()
-        tc = MagicMock()
-        tc.pr_opt = Path("/opt/bin/opt")
-        tc.llvm_reduce = Path("/opt/bin/llvm-reduce")
+        reduced = work / "correctness-0.reduced.ll"
+        reduced.write_text("reduced content")
 
-        with patch(
-            "llvm_hackme.fuzzer.run_command", new_callable=AsyncMock
-        ) as mock_run:
+        ctx = _WorkerContext(
+            work_dir=str(work),
+            seeds_file=str(tmp_path / "seeds.ll"),
+            mutate_bin="/bin/mutate",
+            opt_bin="/bin/opt",
+            alive2_bin="/bin/alive",
+            llvm_extract_bin="/bin/extract",
+            llvm_reduce_bin="/bin/llvm-reduce",
+            pass_name="instcombine",
+            baseline_revision="abc",
+            pr_head_sha="def",
+            patch_sha256="ghi",
+            opt_memory_bytes=0,
+        )
+
+        with patch("llvm_hackme.fuzzer.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            reduced = work / "correctness-0.reduced.ll"
-            reduced.write_text("reduced content")
-
-            result = await runner._reduce_crash(src, tc, 0, work, "instcombine")
-
+            result = _reduce_crash(ctx, 0, src, work)
             assert result is not None
             mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
-            assert args[0] == tc.llvm_reduce
+            assert args[0] == "/bin/llvm-reduce"
 
-    @pytest.mark.asyncio
-    async def test_reduce_falls_back_when_fails(self, tmp_path: Path) -> None:
-        runner = FuzzRunner(MagicMock())
+    def test_reduce_falls_back_when_fails(self, tmp_path: Path) -> None:
         src = tmp_path / "test.src.ll"
         src.write_text("define void @f() { ret void }\n")
         work = tmp_path / "work"
         work.mkdir()
-        tc = MagicMock()
-        tc.pr_opt = Path("/opt/bin/opt")
-        tc.llvm_reduce = Path("/opt/bin/llvm-reduce")
 
-        from llvm_hackme.commands import CommandError, CommandResult
-
-        error_result = CommandResult(
-            args=("/opt/bin/llvm-reduce",), returncode=1, stdout="", stderr="fail"
+        ctx = _WorkerContext(
+            work_dir=str(work),
+            seeds_file=str(tmp_path / "seeds.ll"),
+            mutate_bin="/bin/mutate",
+            opt_bin="/bin/opt",
+            alive2_bin="/bin/alive",
+            llvm_extract_bin="/bin/extract",
+            llvm_reduce_bin="/bin/llvm-reduce",
+            pass_name="instcombine",
+            baseline_revision="abc",
+            pr_head_sha="def",
+            patch_sha256="ghi",
+            opt_memory_bytes=0,
         )
 
         with patch(
-            "llvm_hackme.fuzzer.run_command",
-            new_callable=AsyncMock,
-            side_effect=CommandError(error_result),
+            "llvm_hackme.fuzzer.subprocess.run",
+            side_effect=OSError("fail"),
         ):
-            result = await runner._reduce_crash(src, tc, 0, work, "instcombine")
+            result = _reduce_crash(ctx, 0, src, work)
+            assert result is None
 
+    def test_reduce_falls_back_on_timeout(self, tmp_path: Path) -> None:
+        import subprocess
+
+        src = tmp_path / "test.src.ll"
+        src.write_text("define void @f() { ret void }\n")
+        work = tmp_path / "work"
+        work.mkdir()
+
+        ctx = _WorkerContext(
+            work_dir=str(work),
+            seeds_file=str(tmp_path / "seeds.ll"),
+            mutate_bin="/bin/mutate",
+            opt_bin="/bin/opt",
+            alive2_bin="/bin/alive",
+            llvm_extract_bin="/bin/extract",
+            llvm_reduce_bin="/bin/llvm-reduce",
+            pass_name="instcombine",
+            baseline_revision="abc",
+            pr_head_sha="def",
+            patch_sha256="ghi",
+            opt_memory_bytes=0,
+        )
+
+        with patch(
+            "llvm_hackme.fuzzer.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("cmd", 30),
+        ):
+            result = _reduce_crash(ctx, 0, src, work)
             assert result is None
