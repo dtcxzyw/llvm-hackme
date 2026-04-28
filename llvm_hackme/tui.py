@@ -53,7 +53,8 @@ class PREntry:
     def format_line(self) -> str:
         label = STATUS_LABELS.get(self.status, self.status)
         ts = self.updated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
-        return f"[{ts}] PR #{self.pr_number:>5} [{label:>16}] {self.pr_url}"
+        short_url = f"#{self.pr_number}" if "github.com" in self.pr_url else self.pr_url
+        return f"[{label}] {ts}  {short_url}  {self.pr_title}"
 
 
 class HackmeTUI(App[None]):
