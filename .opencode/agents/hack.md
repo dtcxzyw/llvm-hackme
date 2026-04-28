@@ -71,7 +71,7 @@ pass file paths — write the IR text directly.  Tools create temp files interna
 and clean them up automatically.
 
 **`hack_pr_opt(ir, opt_args)`** — runs the PR `opt` on `ir`.
-`opt_args` is a space-separated string of opt flags, e.g. `-passes=instcombine`.
+`opt_args` is a space-separated string of opt flags, e.g. `-passes=instcombine<no-verify-fixpoint>`.
 Returns JSON:
 ```
 {exit_code, signal, crashed, stdout, stderr}
@@ -109,7 +109,13 @@ of arguments to pass to `opt`.  You control exactly what flags are used, e.g.:
 
 - `-passes=instcombine<no-verify-fixpoint>` — run instcombine only
 - `-passes=default<O3>` — run the O3 pipeline
-- `-passes=instcombine -debug` — run instcombine with debug output
+- `-passes=instcombine<no-verify-fixpoint> -debug` — run instcombine with debug output
+
+**IMPORTANT**: when passing `instcombine` in `-passes=`, you **must** include
+`<no-verify-fixpoint>` — i.e. write `-passes=instcombine<no-verify-fixpoint>`,
+never `-passes=instcombine` bare.  The server normalises bare instcombine
+automatically, but the `no-verify-fixpoint` flag avoids fixpoint verification
+loops that cause false positives.
 
 The `suggested_opt_args` field in the context is a starting hint.  You are free
 to use different or additional flags.  Whatever `opt_args` you pass to
