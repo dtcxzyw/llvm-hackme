@@ -12,6 +12,7 @@ from llvm_hackme.github import (
     _is_revert,
     _parse_issue_comment,
     _parse_pull_request,
+    _should_skip_by_labels,
     _targets_main,
 )
 
@@ -102,3 +103,103 @@ class TestPullRequestParsing:
         comment = _parse_issue_comment(item)
         assert comment.id == 789
         assert comment.body == ""
+
+    def test_parse_pull_request_with_labels(self) -> None:
+        item = {
+            "number": 200,
+            "title": "PR with labels",
+            "user": {"login": "user"},
+            "head": {"sha": "sha"},
+            "updated_at": "2024-01-01T00:00:00Z",
+            "html_url": "https://github.com/llvm/llvm-project/pull/200",
+            "labels": [
+                {"name": "clang:codegen"},
+                {"name": "clang"},
+            ],
+        }
+        pr = _parse_pull_request(item)
+        assert pr.labels == ["clang:codegen", "clang"]
+
+    def test_parse_pull_request_labels_default(self) -> None:
+        item = {
+            "number": 201,
+            "title": "PR without labels key",
+            "user": {"login": "user"},
+            "head": {"sha": "sha"},
+            "updated_at": "2024-01-01T00:00:00Z",
+            "html_url": "https://github.com/llvm/llvm-project/pull/201",
+        }
+        pr = _parse_pull_request(item)
+        assert pr.labels == []
+
+
+class TestLabelFiltering:
+    def test_skip_all_clang_labels(self) -> None:
+        from llvm_hackme.models import PullRequest
+
+        pr = PullRequest(
+            number=1,
+            title="t",
+            author_login="u",
+            head_sha="s",
+            updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            html_url="",
+            labels=["clang:codegen", "clang-tidy"],
+        )
+        assert _should_skip_by_labels(pr) is True
+
+    def test_skip_single_skip_label(self) -> None:
+        from llvm_hackme.models import PullRequest
+
+        pr = PullRequest(
+            number=2,
+            title="t",
+            author_login="u",
+            head_sha="s",
+            updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            html_url="",
+            labels=["libc++"],
+        )
+        assert _should_skip_by_labels(pr) is True
+
+    def test_dont_skip_no_labels(self) -> None:
+        from llvm_hackme.models import PullRequest
+
+        pr = PullRequest(
+            number=3,
+            title="t",
+            author_login="u",
+            head_sha="s",
+            updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            html_url="",
+            labels=[],
+        )
+        assert _should_skip_by_labels(pr) is False
+
+    def test_dont_skip_mixed_labels(self) -> None:
+        from llvm_hackme.models import PullRequest
+
+        pr = PullRequest(
+            number=4,
+            title="t",
+            author_login="u",
+            head_sha="s",
+            updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            html_url="",
+            labels=["clang:codegen", "llvm:transforms"],
+        )
+        assert _should_skip_by_labels(pr) is False
+
+    def test_skip_bolt_label(self) -> None:
+        from llvm_hackme.models import PullRequest
+
+        pr = PullRequest(
+            number=5,
+            title="t",
+            author_login="u",
+            head_sha="s",
+            updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            html_url="",
+            labels=["bolt"],
+        )
+        assert _should_skip_by_labels(pr) is True

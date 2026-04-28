@@ -17,6 +17,34 @@ from llvm_hackme.models import PullRequest
 
 LOGGER = logging.getLogger(__name__)
 
+_SKIP_LABELS = frozenset(
+    {
+        "libc++",
+        "libcxx",
+        "libcxxabi",
+        "libunwind",
+        "lld",
+        "lldb",
+        "flang",
+        "mlir",
+        "compiler-rt",
+        "openmp",
+        "bolt",
+    }
+)
+
+_SKIP_LABEL_PREFIXES = ("clang-", "clang:")
+
+
+def _should_skip_by_labels(pr: PullRequest) -> bool:
+    labels = pr.labels
+    if not labels:
+        return False
+    for label in labels:
+        if label not in _SKIP_LABELS and not label.startswith(_SKIP_LABEL_PREFIXES):
+            return False
+    return True
+
 
 class GitHubError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool) -> None:
@@ -169,7 +197,10 @@ class GitHubClient:
                     continue
                 if _is_draft(item) or not _targets_main(item) or _is_revert(item):
                     continue
-                prs.append(_parse_pull_request(item))
+                pr = _parse_pull_request(item)
+                if _should_skip_by_labels(pr):
+                    continue
+                prs.append(pr)
             if stop or "next" not in _parse_link_relations(response.headers):
                 break
             page += 1
@@ -301,6 +332,10 @@ def _is_revert(item: dict[str, Any]) -> bool:
 def _parse_pull_request(item: dict[str, Any]) -> PullRequest:
     user = item.get("user")
     head = item.get("head")
+    raw_labels: list[dict[str, Any]] = item.get("labels") or []
+    label_names: list[str] = [
+        str(lb["name"]) for lb in raw_labels if isinstance(lb, dict) and lb.get("name")
+    ]
     return PullRequest(
         number=int(item.get("number", 0)),
         title=str(item.get("title", "")),
@@ -311,6 +346,7 @@ def _parse_pull_request(item: dict[str, Any]) -> PullRequest:
         draft=bool(item.get("draft", False)),
         base_ref=_get_base_ref(item),
         patch_url=item.get("patch_url"),
+        labels=label_names,
     )
 
 

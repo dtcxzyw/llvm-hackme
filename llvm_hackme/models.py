@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -29,6 +29,7 @@ class PullRequest:
     draft: bool = False
     base_ref: str = ""
     patch_url: str | None = None
+    labels: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
