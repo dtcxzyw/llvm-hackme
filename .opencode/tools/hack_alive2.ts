@@ -20,7 +20,7 @@ export default tool({
     const extra = parseArgs(args.opt_args)
 
     const tmp = writeTemp(ctx.work_dir, args.ir)
-    if (typeof tmp === "string") return tmp
+    if (!tmp.startsWith("/")) return tmp
 
     const baseOut = tmp + ".baseline.tgt.ll"
     const prOut = tmp + ".pr.tgt.ll"
@@ -99,13 +99,13 @@ function loadContext() {
   return JSON.parse(fs.readFileSync(f, "utf-8"))
 }
 
-function writeTemp(workDir: string, ir: string): string | undefined {
+function writeTemp(workDir: string, ir: string): string {
   const f = path.join(
     workDir,
     `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ll`,
   )
   try {
-    Bun.writeSync(f, ir)
+    fs.writeFileSync(f, ir)
     return f
   } catch (e: any) {
     if (e?.code === "ENOSPC") return "disk_full"
@@ -120,7 +120,7 @@ function parseArgs(raw: string): string[] {
 
 function tryCleanup(...files: string[]): void {
   for (const f of files) {
-    try { Bun.file(f).delete() } catch {}
+    try { fs.unlinkSync(f) } catch {}
   }
 }
 

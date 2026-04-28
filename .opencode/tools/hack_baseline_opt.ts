@@ -20,7 +20,7 @@ export default tool({
     const extra = parseArgs(args.opt_args)
 
     const tmp = writeTemp(ctx.work_dir, args.ir)
-    if (typeof tmp === "string") return tmp
+    if (!tmp.startsWith("/")) return tmp
 
     const cmd: string[] = []
     if (ctx.opt_memory_limit_bytes) {
@@ -30,7 +30,7 @@ export default tool({
     cmd.push(ctx.baseline_opt, "-S", "-o", "/dev/null", tmp, ...extra)
 
     const proc = Bun.spawnSync({ cmd, env: minimalEnv(), stdout: "pipe", stderr: "pipe" })
-    try { Bun.file(tmp).delete() } catch {}
+    try { fs.unlinkSync(tmp) } catch {}
     if (proc.exitCode === ENOSPC) {
       return JSON.stringify({ error: "disk_full", crashed: false })
     }
@@ -53,10 +53,10 @@ function loadContext() {
   return JSON.parse(fs.readFileSync(f, "utf-8"))
 }
 
-function writeTemp(workDir: string, ir: string): string | undefined {
+function writeTemp(workDir: string, ir: string): string {
   const f = path.join(workDir, `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ll`)
   try {
-    Bun.writeSync(f, ir)
+    fs.writeFileSync(f, ir)
     return f
   } catch (e: any) {
     if (e?.code === "ENOSPC") return "disk_full"
