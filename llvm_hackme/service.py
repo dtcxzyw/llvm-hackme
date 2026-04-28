@@ -236,6 +236,8 @@ class HackmeService:
 
                     toolchain = self._builds.toolchain_paths(baseline_revision)
 
+                    await self._emit_status(pr, "fuzzing")
+
                     stored = self._state.get_pull_state(pr_number)
                     if stored.reproducer is not None:
                         try:
