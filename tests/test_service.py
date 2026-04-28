@@ -69,7 +69,7 @@ async def test_reverify_existing_reproducer_still_reproduces_skips_fuzz() -> Non
         ) as mock_report,
         patch("llvm_hackme.service.guess_pass_name", return_value="instcombine"),
     ):
-        mock_verify.return_value = stored_reproducer
+        mock_verify.return_value = (stored_reproducer, "")
 
         service = HackmeService.__new__(HackmeService)
         service._config = MagicMock()
@@ -165,7 +165,7 @@ async def test_reverify_existing_reproducer_gone_proceeds_to_fuzz() -> None:
         ) as mock_report,
         patch("llvm_hackme.service.guess_pass_name", return_value="instcombine"),
     ):
-        mock_verify.return_value = None
+        mock_verify.return_value = (None, "Baseline opt also crashes")
 
         service = HackmeService.__new__(HackmeService)
         service._config = MagicMock()

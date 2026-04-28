@@ -164,10 +164,11 @@ class TestVerifyReproducer:
             "llvm_hackme.verification.check_crash", new_callable=AsyncMock
         ) as mock_check:
             mock_check.side_effect = [None, CrashInfo(stacktrace="SIGSEGV")]
-            result = await verify_reproducer(
+            result, reason = await verify_reproducer(
                 reproducer, toolchain, ["-passes=instcombine"]
             )
         assert result is not None
+        assert reason == ""
         assert result.kind == BugKind.CRASH
         assert result.stacktrace == "SIGSEGV"
 
@@ -200,10 +201,11 @@ class TestVerifyReproducer:
                 CrashInfo(stacktrace="SIGSEGV"),  # baseline crashes too
                 CrashInfo(stacktrace="SIGSEGV"),
             ]
-            result = await verify_reproducer(
+            result, reason = await verify_reproducer(
                 reproducer, toolchain, ["-passes=instcombine"]
             )
         assert result is None
+        assert reason == "Baseline opt also crashes — not a PR regression"
         mock_check.assert_called_once()  # only baseline checked
 
     @pytest.mark.asyncio
@@ -236,9 +238,10 @@ class TestVerifyReproducer:
                 None,  # baseline clean
                 MiscompilationInfo(alive2_output="Value mismatch"),
             ]
-            result = await verify_reproducer(
+            result, reason = await verify_reproducer(
                 reproducer, toolchain, ["-passes=instcombine"]
             )
         assert result is not None
+        assert reason == ""
         assert result.kind == BugKind.MISCOMPILATION
         assert "Value mismatch" in result.alive2_counterexample

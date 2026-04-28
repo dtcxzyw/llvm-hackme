@@ -263,7 +263,7 @@ class HackmeService:
                             stored_opt = _opt_args_from_command(
                                 stored.reproducer.command
                             )
-                            verified_existing = await verify_reproducer(
+                            verified_existing, _ = await verify_reproducer(
                                 stored.reproducer,
                                 toolchain,
                                 stored_opt,
@@ -313,7 +313,7 @@ class HackmeService:
                         reproducer = fuzz_result.reproducer
                         if reproducer is not None:
                             try:
-                                verified = await verify_reproducer(
+                                verified, _ = await verify_reproducer(
                                     reproducer,
                                     toolchain,
                                     [f"-passes={pass_name}"],
@@ -486,7 +486,7 @@ class HackmeService:
                         "description": payload.get("description", ""),
                         "verified": False,
                     }
-                    hack_reproducer = await _hack_verify(
+                    hack_reproducer, reason = await _hack_verify(
                         payload,
                         hack_dir,
                         toolchain,
@@ -494,7 +494,7 @@ class HackmeService:
                         memory_limit_bytes=config.opt_memory_limit_bytes,
                     )
 
-                    response = {"success": False, "reason": "unknown"}
+                    response: dict = {"success": False, "reason": reason or "unknown"}
                     if hack_reproducer is not None:
                         response = {"success": True}
                         result_holder["reproducer"] = hack_reproducer
@@ -734,13 +734,13 @@ async def _hack_verify(
     update: PullRequestUpdate,
     *,
     memory_limit_bytes: int | None = None,
-) -> Reproducer | None:
+) -> tuple[Reproducer | None, str]:
     ir_text = payload.get("ir", "")
     opt_args_str = payload.get("opt_args", "")
     kind_str = payload.get("kind", "crash")
 
     if not ir_text:
-        return None
+        return None, "Missing IR text"
 
     opt_args = _normalize_opt_args(
         opt_args_str.split()
@@ -748,8 +748,9 @@ async def _hack_verify(
         else ["-passes=instcombine<no-verify-fixpoint>"]
     )
     if not _valid_opt_args(opt_args):
-        LOGGER.warning("Rejected unsafe opt_args from hack agent: %s", opt_args)
-        return None
+        reason = f"Rejected unsafe opt_args: {opt_args}"
+        LOGGER.warning(reason)
+        return None, reason
 
     try:
         kind = BugKind(kind_str)

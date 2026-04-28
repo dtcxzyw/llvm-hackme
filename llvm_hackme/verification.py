@@ -196,11 +196,12 @@ async def verify_reproducer(
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
-) -> Reproducer | None:
+) -> tuple[Reproducer | None, str]:
     ir_content = reproducer.source_content
     if ir_content is None:
-        LOGGER.warning("Reproducer has no source content, cannot verify")
-        return None
+        reason = "Reproducer has no source content, cannot verify"
+        LOGGER.warning(reason)
+        return None, reason
 
     if reproducer.kind == BugKind.CRASH:
         return await _verify_regression_crash(
@@ -218,7 +219,7 @@ async def verify_reproducer(
             opt_args,
             memory_limit_bytes=memory_limit_bytes,
         )
-    return None
+    return None, f"Unknown bug kind: {reproducer.kind}"
 
 
 async def _verify_regression_crash(
@@ -228,11 +229,12 @@ async def _verify_regression_crash(
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
-) -> Reproducer | None:
+) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
-        LOGGER.warning("Rejecting IR with forbidden flags: %s", reject)
-        return None
+        reason = f"IR contains forbidden fast-math flags: {reject}"
+        LOGGER.warning(reason)
+        return None, reason
 
     baseline_crash = await check_crash(
         toolchain.baseline_opt,
@@ -241,8 +243,9 @@ async def _verify_regression_crash(
         memory_limit_bytes=memory_limit_bytes,
     )
     if baseline_crash is not None:
-        LOGGER.warning("Baseline opt also crashes — not a PR regression")
-        return None
+        reason = "Baseline opt also crashes — not a PR regression"
+        LOGGER.warning(reason)
+        return None, reason
 
     pr_crash = await check_crash(
         toolchain.pr_opt,
@@ -251,8 +254,9 @@ async def _verify_regression_crash(
         memory_limit_bytes=memory_limit_bytes,
     )
     if pr_crash is None:
-        LOGGER.warning("PR opt did not crash during re-verification")
-        return None
+        reason = "PR opt did not crash during re-verification"
+        LOGGER.warning(reason)
+        return None, reason
 
     LOGGER.info("Verified crash reproducer")
     return Reproducer(
@@ -264,7 +268,7 @@ async def _verify_regression_crash(
         patch_sha256=reproducer.patch_sha256,
         stacktrace=pr_crash.stacktrace,
         source_content=ir_content,
-    )
+    ), ""
 
 
 async def _verify_regression_miscompilation(
@@ -274,11 +278,12 @@ async def _verify_regression_miscompilation(
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
-) -> Reproducer | None:
+) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
-        LOGGER.warning("Rejecting IR with forbidden flags: %s", reject)
-        return None
+        reason = f"IR contains forbidden fast-math flags: {reject}"
+        LOGGER.warning(reason)
+        return None, reason
 
     baseline_mis = await check_miscompilation(
         toolchain.baseline_opt,
@@ -288,8 +293,9 @@ async def _verify_regression_miscompilation(
         memory_limit_bytes=memory_limit_bytes,
     )
     if baseline_mis is not None:
-        LOGGER.warning("Baseline also has Alive2 issues — not a PR regression")
-        return None
+        reason = "Baseline also has Alive2 issues — not a PR regression"
+        LOGGER.warning(reason)
+        return None, reason
 
     pr_mis = await check_miscompilation(
         toolchain.pr_opt,
@@ -300,10 +306,11 @@ async def _verify_regression_miscompilation(
     )
     if pr_mis is None or is_alive2_approximation(pr_mis):
         if pr_mis is not None:
-            LOGGER.warning("Alive2 approximation — not a confirmed miscompilation")
+            reason = "Alive2 approximation — not a confirmed miscompilation"
         else:
-            LOGGER.warning("PR Alive2 passed during re-verification")
-        return None
+            reason = "PR opt did not produce incorrect Alive2 result"
+        LOGGER.warning(reason)
+        return None, reason
 
     LOGGER.info("Verified miscompilation reproducer")
     return Reproducer(
@@ -315,4 +322,4 @@ async def _verify_regression_miscompilation(
         patch_sha256=reproducer.patch_sha256,
         alive2_counterexample=pr_mis.alive2_output,
         source_content=ir_content,
-    )
+    ), ""
