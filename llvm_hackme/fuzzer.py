@@ -72,7 +72,7 @@ class FuzzRunner:
         pass_name = guess_pass_name(patch)
         if pass_name is None:
             LOGGER.warning("Could not guess pass name from patch")
-            return FuzzResult()
+            return FuzzResult(reproducer=None, mutation_count=0)
         LOGGER.info("Guessed pass name from patch: %s", pass_name)
 
         work = self._config.fuzz_work_dir
@@ -83,18 +83,18 @@ class FuzzRunner:
         seeds = self._collect_seeds(patch)
         if not seeds:
             LOGGER.info("No seed functions found in patch")
-            return FuzzResult()
+            return FuzzResult(reproducer=None, mutation_count=0)
 
         seeds_dir = work / "seeds"
         seeds_dir.mkdir(parents=True, exist_ok=True)
 
         if not await self._extract_seeds(seeds, seeds_dir, toolchain):
             LOGGER.info("Failed to extract seeds")
-            return FuzzResult()
+            return FuzzResult(reproducer=None, mutation_count=0)
 
         if not any(seeds_dir.iterdir()):
             LOGGER.info("No seed files extracted")
-            return FuzzResult()
+            return FuzzResult(reproducer=None, mutation_count=0)
 
         seeds_file = work / "seeds.ll"
         try:
@@ -104,7 +104,7 @@ class FuzzRunner:
             )
         except CommandError:
             LOGGER.exception("merge failed")
-            return FuzzResult()
+            return FuzzResult(reproducer=None, mutation_count=0)
 
         try:
             await run_command(
@@ -122,7 +122,7 @@ class FuzzRunner:
             )
         except CommandError:
             LOGGER.exception("baseline opt on seeds failed")
-            return FuzzResult()
+            return FuzzResult(reproducer=None, mutation_count=0)
 
         return await self._fuzz_loop(
             work,
