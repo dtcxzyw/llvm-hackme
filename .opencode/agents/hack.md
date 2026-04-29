@@ -286,16 +286,6 @@ you **MUST** check whether these flags are still valid and drop them if not:
 
 **Key rules for flag handling:**
 - `replaceOperand()` **retains** the old flags — if the new operand makes them invalid, drop them.
-- `ICmpInst::Create()` / `BinaryOperator::Create()` **drops** all flags — old flags are lost.
-- Pattern matchers (`m_SpecificCmp`, `m_Add`, `m_Specific`, etc.) match by opcode/predicate
-  only and **ignore** flags like `samesign`.  If you replace the matched instruction with a
-  newly created one (which drops all flags), any `samesign` from the original is silently lost.
-- Example: `ICmpInst::Create()` drops all flags — if the matched `icmp` had `samesign`, the
-  replacement lacks it, and UGT vs UGT+samesign have different poison domains → miscompile.
-- Example: `replaceOperand()` retains flags — replacing `or disjoint`'s operand with constant
-  `true` without dropping `disjoint` introduces poison where there was none.
-- Example: `replaceOperand()` retains flags — replacing `icmp slt samesign`'s operand with one
-  that may have a different sign, but `samesign` is still set → poison.
 
 ### 2. Poison-Generating / UB-Implying Attributes and Metadata
 
@@ -332,15 +322,7 @@ have no poison implication.
 
 For `nnan`/`ninf`: does the fold turn a NaN/Inf result into a finite one, or vice versa?
 
-### 4. GEP Folding Constraints
-
-Folding `icmp eq ptr %gep1, %gep2` to `icmp eq iN %idx1, %idx2` **requires**:
-- Both GEPs have `inbounds` **and** the compared indices have `nsw`/`nuw`
-- Without nowrap, the scale factor may cause wrapping that makes index equality ≠ address equality
-
-Example: fold assumed index overflow is harmless but it was not.
-
-### 5. SCEV and Loop Analysis Traps
+### 4. SCEV and Loop Analysis Traps
 
 - **`std::optional<bool>` coercion**: `if (checkCondition(...))` coerces `false` to `true`.
   Must use `if (checkCondition(...).value_or(false))` or `checkCondition(...) == true`.
@@ -355,23 +337,23 @@ Example: fold assumed index overflow is harmless but it was not.
   no address operand can be poison along the predicated path — a phi from the vector.body edge
   may carry poison into the load.
 
-### 6. Overly Relaxed Preconditions
+### 5. Overly Relaxed Preconditions
 
 The patch may optimize a pattern previously guarded by a stricter condition.  Feed input that
 satisfies the new (looser) precondition but violates the old (correct) assumption.
 
-### 7. ConstantExpr
+### 6. ConstantExpr
 
 Does the patch match on `Constant` but neglect `ConstantExpr`?  A constant expression can appear
 where a plain constant is expected.
 
-### 8. Refinement / Replacement
+### 7. Refinement / Replacement
 
 If the patch replaces expression `A` with `B` based on `simplify(A) == simplify(B)`, check whether
 `simplify(B)` introduces poison/UB that `A` did not have.  Look for `replaceAllUsesWith` versus
 single-use optimizations: the replacement must be safe for **every** user, not just the current one.
 
-### 9. In-Place Modification
+### 8. In-Place Modification
 
 When the patch modifies an existing instruction in-place — via `setOperand()`, `mutateType()`,
 or any method that changes the instruction's semantics without creating a new `Instruction` —
