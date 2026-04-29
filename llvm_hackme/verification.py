@@ -138,6 +138,18 @@ async def check_miscompilation(
             except (CommandError, asyncio.TimeoutError):
                 return None
 
+            # Strip intrinsic declares so alive2 rejects unrecognised
+            # intrinsics instead of treating them as ordinary functions.
+            with open(ir_file, encoding="utf-8") as rf:  # noqa: ASYNC230
+                ir_stripped = _strip_intrinsic_declares(rf.read())
+            with open(ir_file, "w", encoding="utf-8") as wf:  # noqa: ASYNC230
+                wf.write(ir_stripped)
+            if tgt.exists():
+                with open(tgt, encoding="utf-8") as rf:  # noqa: ASYNC230
+                    tgt_stripped = _strip_intrinsic_declares(rf.read())
+                with open(tgt, "w", encoding="utf-8") as wf:  # noqa: ASYNC230
+                    wf.write(tgt_stripped)
+
             try:
                 alive_result = await run_command(
                     [
@@ -188,6 +200,17 @@ def _validate_ir_no_undef(ir_content: str) -> str | None:
     if " undef" in ir_content:
         return "IR contains ' undef' — undef values are not allowed in submissions"
     return None
+
+
+def _strip_intrinsic_declares(ir_content: str) -> str:
+    """Remove `declare ... @llvm.*` lines so alive2 rejects unrecognised
+    intrinsics instead of silently treating them as regular functions.
+    """
+    return "\n".join(
+        line
+        for line in ir_content.split("\n")
+        if not (line.lstrip().startswith("declare ") and "@llvm." in line)
+    )
 
 
 def is_alive2_approximation(info: MiscompilationInfo | None) -> bool:
@@ -278,7 +301,7 @@ async def _verify_regression_crash(
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
         stacktrace=pr_crash.stacktrace,
-        source_content=ir_content,
+        source_content=_strip_intrinsic_declares(ir_content),
     ), ""
 
 
@@ -337,5 +360,5 @@ async def _verify_regression_miscompilation(
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
         alive2_counterexample=pr_mis.alive2_output,
-        source_content=ir_content,
+        source_content=_strip_intrinsic_declares(ir_content),
     ), ""
