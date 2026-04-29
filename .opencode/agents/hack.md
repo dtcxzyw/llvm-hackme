@@ -85,13 +85,12 @@ You *may* use this to sanity-check your IR, but the server-side submit verificat
 already performs baseline regression checking.  Do not rely on it to confirm a
 regression; submit and let the server decide.
 
-**`hack_alive2(ir, opt_args)`** — runs baseline opt, PR opt, and alive2 on
-one IR file.  Internally compiles with both opts and compares the results.
-Returns JSON:
+**`hack_alive2(ir)`** — checks an `@src` / `@tgt` proof pair with alive2.
+The IR must define both `@src` and `@tgt` functions.  alive2 compares them directly
+(no opt pass runs).  Returns JSON:
 ```
 {exit_code, correct, miscompile, counterexample}
 ```
-If either opt crashes, returns `baseline_crashed` or `pr_crashed` with stderr.
 - `correct: true` — transformation is correct (no bug).
 - `miscompile: true` — alive2 found a miscompilation; `counterexample` has details.
 - Neither true — alive2 could not determine correctness (timeout, unsupported IR).

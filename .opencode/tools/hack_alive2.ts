@@ -2,28 +2,19 @@ import fs from "node:fs"
 import path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 
-const ENOSPC = 28
-
 export default tool({
   description:
-    "Run both baseline and PR opt on LLVM IR text, then compare the results with alive2.",
+    "Check an @src / @tgt proof pair with alive2.  The IR must define both @src and @tgt functions.",
   args: {
     ir: tool.schema
       .string()
-      .describe("Full LLVM IR text of the module to test"),
-    opt_args: tool.schema
-      .string()
-      .describe("Space-separated opt arguments passed to both baseline and PR opt"),
+      .describe("Full LLVM IR text containing both @src and @tgt functions"),
   },
   async execute(args) {
     const ctx = loadContext()
-    const extra = parseArgs(args.opt_args)
 
     const tmp = writeTemp(ctx.work_dir, args.ir)
     if (!tmp.startsWith("/")) return tmp
-
-    const baseOut = tmp + ".baseline.tgt.ll"
-    const prOut = tmp + ".pr.tgt.ll"
 
     function memoryWrap(cmd: string[]): string[] {
       if (!ctx.opt_memory_limit_bytes) return cmd
@@ -34,47 +25,11 @@ export default tool({
 
     const env = minimalEnv()
 
-    const baseProc = Bun.spawnSync({
-      cmd: memoryWrap([ctx.baseline_opt, "-S", "-o", baseOut, tmp, ...extra]),
-      env, stdout: "pipe", stderr: "pipe",
-    })
-    if (baseProc.exitCode !== 0 && baseProc.exitCode !== ENOSPC) {
-      tryCleanup(tmp, baseOut, prOut)
-      return JSON.stringify({
-        baseline_crashed: true,
-        baseline_stderr: decodeBuf(baseProc.stderr).slice(-4000),
-        correct: false,
-        miscompile: false,
-      })
-    }
-    if (baseProc.exitCode === ENOSPC) {
-      tryCleanup(tmp, baseOut, prOut)
-      return JSON.stringify({ error: "disk_full" })
-    }
-
-    const prProc = Bun.spawnSync({
-      cmd: memoryWrap([ctx.pr_opt, "-S", "-o", prOut, tmp, ...extra]),
-      env, stdout: "pipe", stderr: "pipe",
-    })
-    if (prProc.exitCode !== 0 && prProc.exitCode !== ENOSPC) {
-      tryCleanup(tmp, baseOut, prOut)
-      return JSON.stringify({
-        pr_crashed: true,
-        pr_stderr: decodeBuf(prProc.stderr).slice(-4000),
-        correct: false,
-        miscompile: false,
-      })
-    }
-    if (prProc.exitCode === ENOSPC) {
-      tryCleanup(tmp, baseOut, prOut)
-      return JSON.stringify({ error: "disk_full" })
-    }
-
     const aliveProc = Bun.spawnSync({
-      cmd: memoryWrap([ctx.alive_tv, "--smt-to=10000", "--disable-undef-input", baseOut, prOut]),
+      cmd: memoryWrap([ctx.alive_tv, "--smt-to=10000", "--disable-undef-input", tmp]),
       env, stdout: "pipe", stderr: "pipe",
     })
-    tryCleanup(tmp, baseOut, prOut)
+    tryCleanup(tmp)
 
     const aliveOut = decodeBuf(aliveProc.stdout)
     const aliveErr = decodeBuf(aliveProc.stderr)
@@ -111,11 +66,6 @@ function writeTemp(workDir: string, ir: string): string {
     if (e?.code === "ENOSPC") return "disk_full"
     return `Failed to write temp file: ${e}`
   }
-}
-
-function parseArgs(raw: string): string[] {
-  if (!raw || !raw.trim()) return []
-  return raw.trim().split(/\s+/)
 }
 
 function tryCleanup(...files: string[]): void {
