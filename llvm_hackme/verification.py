@@ -56,6 +56,8 @@ class CrashInfo:
 @dataclass(frozen=True)
 class MiscompilationInfo:
     alive2_output: str
+    alive2_args: str = ""
+    opt_output: str = ""
 
 
 async def check_crash(
@@ -111,8 +113,13 @@ async def check_miscompilation(
     *,
     timeout: int = VERIFY_TIMEOUT,
     memory_limit_bytes: int | None = None,
+    alive2_extra_args: list[str] | None = None,
 ) -> MiscompilationInfo | None:
     env = minimal_execution_env()
+
+    if alive2_extra_args is None:
+        alive2_extra_args = []
+    _validate_alive2_unroll(alive2_extra_args)
 
     fd, tmp_path = tempfile.mkstemp(suffix=".ll")
     try:
@@ -120,6 +127,7 @@ async def check_miscompilation(
             wf.write(ir_content)
         ir_file = Path(tmp_path)
         tgt = ir_file.with_suffix(".alive-check.tgt.ll")
+        opt_output = ""
         try:
             try:
                 await run_command(
@@ -135,6 +143,9 @@ async def check_miscompilation(
                     env=env,
                     memory_limit_bytes=memory_limit_bytes,
                 )
+                if tgt.exists():
+                    with open(tgt, encoding="utf-8") as rf:  # noqa: ASYNC230
+                        opt_output = rf.read()
             except (CommandError, asyncio.TimeoutError):
                 return None
 
@@ -156,6 +167,7 @@ async def check_miscompilation(
                         str(alive_tv),
                         "--smt-to=10000",
                         "--disable-undef-input",
+                        *alive2_extra_args,
                         str(ir_file),
                         str(tgt),
                     ],
@@ -172,8 +184,13 @@ async def check_miscompilation(
                 "0 incorrect transformations" in stdout
                 and "Transformation seems to be correct" in stdout
             )
+            alive2_args_str = " ".join(alive2_extra_args) if alive2_extra_args else ""
             if not correct and ALIVE2_INCORRECT_RE.search(stdout):
-                return MiscompilationInfo(alive2_output=stdout)
+                return MiscompilationInfo(
+                    alive2_output=stdout,
+                    alive2_args=alive2_args_str,
+                    opt_output=opt_output,
+                )
             return None
         finally:
             _try_unlink(tgt)
@@ -184,6 +201,23 @@ async def check_miscompilation(
 def _try_unlink(path: Path) -> None:
     with contextlib.suppress(OSError):
         path.unlink(missing_ok=True)
+
+
+_MAX_ALIVE2_UNROLL = 128
+_ALIVE2_UNROLL_RE = re.compile(r"^-(?:src|tgt)-unroll=(\d+)$")
+
+
+def _validate_alive2_unroll(args: list[str]) -> None:
+    for arg in args:
+        m = _ALIVE2_UNROLL_RE.match(arg)
+        if m:
+            n = int(m.group(1))
+            if n > _MAX_ALIVE2_UNROLL:
+                raise VerificationError(
+                    f"alive2 unroll {n} exceeds maximum {_MAX_ALIVE2_UNROLL}"
+                )
+            if n < 1:
+                raise VerificationError(f"alive2 unroll {n} must be >= 1")
 
 
 def _validate_ir_forbidden_flags(ir_content: str) -> str | None:
@@ -225,6 +259,7 @@ async def verify_reproducer(
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
+    alive2_extra_args: list[str] | None = None,
 ) -> tuple[Reproducer | None, str]:
     ir_content = reproducer.source_content
     if ir_content is None:
@@ -247,6 +282,7 @@ async def verify_reproducer(
             toolchain,
             opt_args,
             memory_limit_bytes=memory_limit_bytes,
+            alive2_extra_args=alive2_extra_args,
         )
     return None, f"Unknown bug kind: {reproducer.kind}"
 
@@ -312,6 +348,7 @@ async def _verify_regression_miscompilation(
     opt_args: list[str],
     *,
     memory_limit_bytes: int | None = None,
+    alive2_extra_args: list[str] | None = None,
 ) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
@@ -330,6 +367,7 @@ async def _verify_regression_miscompilation(
         ir_content,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
+        alive2_extra_args=alive2_extra_args,
     )
     if baseline_mis is not None:
         reason = "Baseline also has Alive2 issues — not a PR regression"
@@ -342,6 +380,7 @@ async def _verify_regression_miscompilation(
         ir_content,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
+        alive2_extra_args=alive2_extra_args,
     )
     if pr_mis is None or is_alive2_approximation(pr_mis):
         if pr_mis is not None:
@@ -360,5 +399,7 @@ async def _verify_regression_miscompilation(
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
         alive2_counterexample=pr_mis.alive2_output,
+        alive2_args=pr_mis.alive2_args,
+        opt_output=pr_mis.opt_output,
         source_content=_strip_intrinsic_declares(ir_content),
     ), ""

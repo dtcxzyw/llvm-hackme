@@ -85,9 +85,10 @@ You *may* use this to sanity-check your IR, but the server-side submit verificat
 already performs baseline regression checking.  Do not rely on it to confirm a
 regression; submit and let the server decide.
 
-**`hack_alive2(ir)`** — checks an `@src` / `@tgt` proof pair with alive2.
+**`hack_alive2(ir, alive2_args?)`** — checks an `@src` / `@tgt` proof pair with alive2.
 The IR must define both `@src` and `@tgt` functions.  alive2 compares them directly
-(no opt pass runs).  Returns JSON:
+(no opt pass runs).  `alive2_args` is an optional string of extra alive-tv flags,
+e.g. `-src-unroll=4 -tgt-unroll=4` (max unroll 128).  Returns JSON:
 ```
 {exit_code, correct, miscompile, counterexample}
 ```
@@ -271,6 +272,14 @@ function-attrs, arg-promotion).  `hack_alive2` also supports multi-function proo
 via matching `@src_foo` / `@tgt_foo` suffixes, but does **not** handle IPO — each
 `@src_N` / `@tgt_N` pair is checked independently.  For IPO bugs, use `hack_submit`.
 
+**Loop proofs**: alive2 supports `-src-unroll=N` and `-tgt-unroll=N` to unroll
+loops in source and target functions.  The IR trip count must be small enough for
+the unroll to be feasible.  Maximum unroll depth is 128.  Pass these via
+`alive2_args` in both `hack_alive2` and `hack_submit`:
+```
+alive2_args: "-src-unroll=4 -tgt-unroll=4"
+```
+
 ### 1. Poison-Generating Instruction Flags
 
 When a fold replaces operands, removes guarding conditions, or changes semantics,
@@ -449,6 +458,8 @@ opt_args    — opt pipeline string, e.g. "-passes=instcombine<no-verify-fixpoin
 kind        — "crash" or "miscompilation"
 description — one-line summary of the bug, e.g. "InstCombine folds
               icmp ult (shl X, C), 0 when shl wraps"
+alive2_args — optional extra alive-tv flags, e.g. "-src-unroll=4 -tgt-unroll=4"
+              (max unroll 128; only meaningful for miscompilation)
 ```
 
 The IR must be a self-contained module with `target datalayout` and `target triple`

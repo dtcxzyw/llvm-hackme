@@ -9,6 +9,9 @@ export default tool({
     ir: tool.schema
       .string()
       .describe("Full LLVM IR text containing both @src and @tgt functions"),
+    alive2_args: tool.schema
+      .string()
+      .describe("Optional extra alive-tv flags, e.g. '-src-unroll=4 -tgt-unroll=4' (max unroll 128)"),
   },
   async execute(args) {
     const ctx = loadContext()
@@ -25,8 +28,9 @@ export default tool({
 
     const env = minimalEnv()
 
+    const extra = (args.alive2_args || "").trim().split(/\s+/).filter(Boolean)
     const aliveProc = Bun.spawnSync({
-      cmd: memoryWrap([ctx.alive_tv, "--smt-to=10000", "--disable-undef-input", tmp]),
+      cmd: memoryWrap([ctx.alive_tv, "--smt-to=10000", "--disable-undef-input", ...extra, tmp]),
       env, stdout: "pipe", stderr: "pipe",
     })
     tryCleanup(tmp)

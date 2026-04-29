@@ -749,6 +749,7 @@ async def _hack_verify(
     ir_text = payload.get("ir", "")
     opt_args_str = payload.get("opt_args", "")
     kind_str = payload.get("kind", "crash")
+    alive2_args_str = payload.get("alive2_args", "")
 
     if not ir_text:
         return None, "Missing IR text"
@@ -762,6 +763,10 @@ async def _hack_verify(
         reason = f"Rejected unsafe opt_args: {opt_args}"
         LOGGER.warning(reason)
         return None, reason
+
+    alive2_extra_args = (
+        alive2_args_str.strip().split() if alive2_args_str.strip() else None
+    )
 
     try:
         kind = BugKind(kind_str)
@@ -790,4 +795,5 @@ async def _hack_verify(
         toolchain,
         opt_args,
         memory_limit_bytes=memory_limit_bytes,
+        alive2_extra_args=alive2_extra_args,
     )

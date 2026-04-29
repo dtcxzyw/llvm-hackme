@@ -19,6 +19,9 @@ export default tool({
     description: tool.schema
       .string()
       .describe("One-line description of the bug"),
+    alive2_args: tool.schema
+      .string()
+      .describe("Optional extra alive-tv flags, e.g. '-src-unroll=4 -tgt-unroll=4' (max unroll 128)"),
   },
   async execute(args) {
     const irBytes = new TextEncoder().encode(args.ir).length
@@ -37,6 +40,7 @@ export default tool({
       opt_args: args.opt_args,
       kind: args.kind,
       description: args.description,
+      alive2_args: args.alive2_args || "",
     })
 
     try {

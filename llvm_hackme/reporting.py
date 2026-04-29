@@ -117,6 +117,15 @@ def make_comment_body(
             lines.append(reproducer.alive2_counterexample.strip())
             lines.append("```")
             lines.append("")
+        if reproducer.alive2_args:
+            lines.append(f"**Alive2 Args**: `{reproducer.alive2_args}`")
+            lines.append("")
+        if reproducer.opt_output:
+            lines.append("**Opt Output**:")
+            lines.append("```llvm")
+            lines.append(reproducer.opt_output.strip())
+            lines.append("```")
+            lines.append("")
 
     elif state == CommentState.STILL_REPRODUCES and reproducer is not None:
         lines.append("## Status: Previously reported issue still reproduces")
@@ -182,6 +191,8 @@ async def report_result(
             patch_sha256=reproducer.patch_sha256,
             stacktrace=reproducer.stacktrace,
             alive2_counterexample=reproducer.alive2_counterexample,
+            alive2_args=reproducer.alive2_args,
+            opt_output=reproducer.opt_output,
             source_content=reproducer.source_content,
         )
 
