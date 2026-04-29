@@ -362,6 +362,7 @@ class HackmeService:
 
             LOGGER.info("PR #%s processing complete", pr_number)
         except asyncio.CancelledError:
+            transient = True
             raise
         except Exception:
             exc = sys.exc_info()[1]
