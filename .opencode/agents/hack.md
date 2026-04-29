@@ -265,6 +265,12 @@ pointers, reduce the pointer width by specifying a custom data layout:
 target datalayout = "p:8:8:8"
 ```
 
+**IPO / multi-function**: `hack_submit` accepts multi-function IR and works across
+function boundaries — useful for inter-procedural optimizations (inlining,
+function-attrs, arg-promotion).  `hack_alive2` also supports multi-function proofs
+via matching `@src_foo` / `@tgt_foo` suffixes, but does **not** handle IPO — each
+`@src_N` / `@tgt_N` pair is checked independently.  For IPO bugs, use `hack_submit`.
+
 ### 1. Poison-Generating Instruction Flags
 
 When a fold replaces operands, removes guarding conditions, or changes semantics,
