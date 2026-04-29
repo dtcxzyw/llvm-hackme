@@ -184,6 +184,12 @@ def _validate_ir_forbidden_flags(ir_content: str) -> str | None:
     return None
 
 
+def _validate_ir_no_undef(ir_content: str) -> str | None:
+    if " undef" in ir_content:
+        return "IR contains ' undef' — undef values are not allowed in submissions"
+    return None
+
+
 def is_alive2_approximation(info: MiscompilationInfo | None) -> bool:
     if info is None:
         return False
@@ -236,6 +242,11 @@ async def _verify_regression_crash(
         LOGGER.warning(reason)
         return None, reason
 
+    reject = _validate_ir_no_undef(ir_content)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
+
     baseline_crash = await check_crash(
         toolchain.baseline_opt,
         ir_content,
@@ -284,6 +295,11 @@ async def _verify_regression_miscompilation(
         reason = f"IR contains forbidden fast-math flags: {reject}"
         LOGGER.warning(reason)
         return None, reason
+
+    reject = _validate_ir_no_undef(ir_content)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
 
     baseline_mis = await check_miscompilation(
         toolchain.baseline_opt,

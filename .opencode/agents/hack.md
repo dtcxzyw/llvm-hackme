@@ -197,8 +197,9 @@ submission, read the rejection reason carefully:
 4. **FixedVector vs ScalableVector** — mixing `<N x ty>` with `<vscale x N x ty>`.
 5. **Operator / intrinsic matching** — if an optimization pattern-matches on
    multiple operators, check that their opcodes or intrinsic IDs match before folding.
-6. **Undef / poison assumptions** — if the patch assumes an operand is non-undef or
-   non-poison, feed undef or poison to trigger UB.
+6. **Poison assumptions** — if the patch assumes an operand is non-poison,
+   feed poison to trigger UB.  **Do NOT use `undef` in submitted IR** — the
+   server rejects any IR containing ` undef`.
 
 ## Miscompilation Heuristics
 
@@ -374,6 +375,8 @@ for the report; do NOT include a `RUN:` line in your submission.
 - **Submit early.**  Don't over-polish the IR — the server-side verification is
   the ultimate arbiter.  If rejected, the response will tell you why; fix it and
   retry.
+- **No `undef`.**  Never use `undef` as an operand value.  ` undef` anywhere in
+  the IR will be rejected by the server.
 
 ## Example
 
