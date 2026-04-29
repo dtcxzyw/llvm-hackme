@@ -28,8 +28,6 @@ def reviewer() -> OpenAIPatchReviewer:
             hack_budget_seconds=1200,
             hack_model="test/model",
             max_patch_chars=1000,
-            patch_chunk_chars=500,
-            max_patch_chunks=4,
             max_review_retries=2,
             opt_memory_limit_bytes=1024**3,
             build_jobs=32,
@@ -69,13 +67,6 @@ class TestOpenAIPatchReviewer:
         result = await reviewer.review(large_patch)
         assert result.accepted is False
         assert "too large" in result.reason.lower()
-
-    @pytest.mark.asyncio
-    async def test_review_too_many_chunks(self, reviewer: OpenAIPatchReviewer) -> None:
-        large_patch = "a\n" * 2001
-        result = await reviewer.review(large_patch)
-        assert result.accepted is False
-        assert "exceeds limit" in result.reason.lower()
 
     @pytest.mark.asyncio
     async def test_review_api_error(self, reviewer: OpenAIPatchReviewer) -> None:
@@ -133,18 +124,3 @@ class TestOpenAIPatchReviewer:
         )
         result = await reviewer.review("small patch")
         assert result.accepted is True
-
-    def test_chunk_patch_no_chunking(self, reviewer: OpenAIPatchReviewer) -> None:
-        chunks = reviewer._chunk_patch("small patch")
-        assert len(chunks) == 1
-        assert chunks[0] == "small patch"
-
-    def test_chunk_patch_split(self, reviewer: OpenAIPatchReviewer) -> None:
-        patch = "line1\n" * 20000
-        chunks = reviewer._chunk_patch(patch)
-        assert len(chunks) > 1
-
-    def test_chunk_patch_empty(self, reviewer: OpenAIPatchReviewer) -> None:
-        chunks = reviewer._chunk_patch("")
-        assert len(chunks) == 1
-        assert chunks[0] == ""

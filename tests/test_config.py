@@ -56,8 +56,6 @@ class TestConfigFromEnv:
         assert config.baseline_update_interval_seconds == 3600
         assert config.fuzz_budget_seconds == 600
         assert config.max_patch_chars == 200_000
-        assert config.patch_chunk_chars == 50_000
-        assert config.max_patch_chunks == 8
         assert config.opt_memory_limit_bytes == 1024 * 1024 * 1024
 
     def test_custom_values(self) -> None:

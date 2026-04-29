@@ -42,8 +42,6 @@ class Config:
     hack_budget_seconds: int
     hack_model: str
     max_patch_chars: int
-    patch_chunk_chars: int
-    max_patch_chunks: int
     max_review_retries: int
     opt_memory_limit_bytes: int
     build_jobs: int
@@ -120,8 +118,6 @@ class Config:
             hack_budget_seconds=_int_env("LLVM_HACKME_HACK_BUDGET_SECONDS", 1200),
             hack_model=_required_env("LLVM_HACKME_HACK_MODEL"),
             max_patch_chars=_int_env("LLVM_HACKME_MAX_PATCH_CHARS", 200_000),
-            patch_chunk_chars=_int_env("LLVM_HACKME_PATCH_CHUNK_CHARS", 50_000),
-            max_patch_chunks=_int_env("LLVM_HACKME_MAX_PATCH_CHUNKS", 8),
             max_review_retries=_int_env("LLVM_HACKME_MAX_REVIEW_RETRIES", 2),
             opt_memory_limit_bytes=_int_env(
                 "LLVM_HACKME_OPT_MEMORY_LIMIT_BYTES", 1024 * 1024 * 1024
