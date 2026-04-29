@@ -25,10 +25,11 @@ rejected with a reason; fix or find a new candidate.
 
 ## Time Management
 
-You have a limited time budget.  Pace yourself: do not spend more than a few
-minutes analyzing a single precondition or chasing one narrow theory.  If you
-cannot find a bug after reasonable effort, say so and stop — finding nothing is
-an acceptable outcome.  Do NOT run to the timeout doing busy-work.
+You have a limited time budget.  The annotation table in step 2 is your
+**analysis phase**.  After you output the table, you MUST move to step 3
+(construct IR).  Do NOT go back to read more source code — the table is your
+complete analysis.  If you cannot find a bug after constructing and submitting
+IR for your WEAK rows, say so and stop.
 
 ## Exit Rules
 
@@ -128,84 +129,52 @@ bug report.  Choose carefully.
 
 Call `hack_context` to get all paths and the hint.
 
-### 2. Analyze the patch with Hoare Logic
+### 2. Annotate every changed code path with Hoare Logic — MUST output a table
 
-Read the diff file.  Identify every changed function.  Compare the baseline and PR
-source code with the `read` tool.  For each changed hunk, annotate preconditions
-and postconditions:
+Read the patch diff.  **You MUST produce a visible annotation table before any
+other tool call.**  Use `read` to inspect only the changed functions (baseline and
+PR).  **Do NOT read LLVM infrastructure headers** (PatternMatch.h, InstrTypes.h,
+IRBuilder.h, etc.) — you are hunting for bugs in the patch, not auditing the
+framework.
 
-**Explicit casts — assertion pre-condition:**
-
-```
-// pre-condition: isa<Instruction>(V) — must hold or crash
-auto *I = cast<Instruction>(V);
-```
-
-**Conditional (nullable) casts — post-condition inside the body:**
+For each distinct code path introduced or modified by the patch, fill in this table:
 
 ```
-if (auto *I = dyn_cast<Instruction>(V)) {
-// post-condition: isa<Instruction>(V) — guaranteed by dyn_cast
-}
+| Line | Pre-condition (must hold) | What if violated? | Verified? |
+|------|--------------------------|-------------------|-----------|
+| ...  | isa<Instruction>(V)      | crash (cast)      | depends on operand order → WEAK |
+| ...  | I != nullptr             | crash (deref)     | guarded by prior check → OK |
+| ...  | X->getType() == Y->getType() | poison (mismatched types) | not checked → WEAK |
 ```
 
-**Bit-width assumptions — precondition from APInt semantics:**
+**Cover every category below.  If you skip a category, explain why.**
 
-```
-APInt A = ...;
-// pre-condition: A.isIntN(64);
-uint64_t ShAmt = A.getZExtValue();
-```
+- **Explicit casts** (`cast<Instruction>(V)`, `cast<Constant>(V)`) — what guarantees the cast target?  Is the source guaranteed by a prior match, by operand canonicalization, or by a caller precondition?  If canonicalization runs first, verify it handles ALL cases (e.g., `m_c_Mul` vs non-swapped operand order).
+- **Nullable casts** (`dyn_cast<Instruction>(V)`, `dyn_cast<T>(V)`) — is the null check actually reachable?  Look for dead-code guards that mask missing null checks.
+- **Bit-width / APInt** — `getZExtValue()`, `getLimitedValue()`, truncation, `sext`/`zext`.  Does the patch check that the value fits?
+- **Pointer / operand dereferences** (`I->getOperand(0)`, `I->getParent()`) — is the pointer/index range validated?
+- **Pattern-match short-circuits** — if a guard uses `match()` with `&&`, break it apart.  Did the patch reorder or remove a clause that previously blocked a type mismatch, null pointer, or undef value?
+- **Flag propagation** — does the patch create new instructions without auditing existing poison flags (nsw, nuw, exact, disjoint, inbounds, nneg, samesign)?  Does it mutate an instruction in-place (`setOperand`, `mutateType`) leaving stale flags?
+- **Dominance** — are new instructions inserted at a point where operands dominate?
+- **Metadata / Attributes** — does the patch strip or preserve `range`, `noundef`, `align`, `nonnull`?
 
-**Pointer dereferences — precondition is non-null:**
+When using `read`, **limit to one function at a time** — set `limit` to at most
+200 lines.  If you need to read two functions, make two separate calls.
 
-```
-Value *Op = I->getOperand(0);
-// pre-condition: I != nullptr
-// pre-condition: I->getNumOperands() > 0
-```
+Mark each row as **WEAK** (no clear guard, potential crash/poison) or **OK**
+(explicitly checked or structural guarantee).
 
-**Pattern-match guards — post-condition inside the branch:**
+### 3. Construct a test case for the weakest precondition
 
-```
-if (match(V, m_Add(m_Value(X), m_ConstantInt(C)))) {
-// post-condition: V matches add with constant RHS — guaranteed by match
-```
+From your annotation table, pick every row marked **WEAK**.  For each, construct a
+minimal, self-contained LLVM IR module that violates the precondition.  Mutate
+existing tests from the diff, write new IR, try different opt_args, shuffle
+operands, change types, add/remove flags.
 
-Do **not** guess preconditions blindly.  Use the `read` tool to look up the actual
-source code (baseline and PR) and confirm each condition.  For `&&` / `||`
-short-circuit logic, break each clause apart and analyze independently — the patch
-may have reordered or removed a guard that previously short-circuited a dangerous
-code path.
+**Do NOT read more source code after starting this step.**  The table is
+complete.  Submit first, refine only when the server gives you a rejection reason.
 
-### 3. Search for counterexamples
-
-When a precondition involves numeric constraints (bit-widths, ranges, overflow),
-formulate a SMT-LIB2 query and use `hack_z3` to search for violating inputs.
-
-Example — checking if `(X + Y)` overflows for `4`-bit signed integers (range `[-8, 7]`):
-
-```smt2
-(declare-const X (_ BitVec 4))
-(declare-const Y (_ BitVec 4))
-(assert (not (bvslt (bvadd X Y) (bvsrem (bvadd X Y) (_ bv16 4)))))
-(check-sat)
-(get-model)
-```
-
-### 4. Construct a test case
-
-Build a minimal, self-contained LLVM IR module that triggers the changed code path.
-Prefer mutating existing tests from the diff; write new IR from scratch when necessary.
-Tweak constants, shuffle operands, change types, introduce corner-case values, and
-add/remove metadata or poison-generating flags.
-
-### 5. Test the candidate
-
-Run `hack_pr_opt(ir_path, opt_args)` (and optionally `hack_alive2(ir_path, opt_args)`)
-to confirm the bug before submitting.
-
-### 6. Submit
+### 4. Submit immediately
 
 Call `hack_submit(ir, opt_args, kind, description)`.  If the server rejects your
 submission, read the rejection reason carefully:
