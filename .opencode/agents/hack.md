@@ -287,11 +287,15 @@ you **MUST** check whether these flags are still valid and drop them if not:
 **Key rules for flag handling:**
 - `replaceOperand()` **retains** the old flags — if the new operand makes them invalid, drop them.
 - `ICmpInst::Create()` / `BinaryOperator::Create()` **drops** all flags — old flags are lost.
-- When pattern-matching instructions with flags (`m_SpecificCmp`, `m_Add`, `m_Specific`, etc.),
-  compare flags **bitwise**, not just the opcode or predicate.
-- Pattern matchers like `m_SpecificCmp` matched by predicate **ignoring** `samesign` → miscompile.
-- `disjoint` on `or` not dropped when operand replaced with constant `true` → poison.
-- `samesign` on icmp retained after `replaceOperand` changed operand to one that may differ in sign → miscompile.
+- Pattern matchers (`m_SpecificCmp`, `m_Add`, `m_Specific`, etc.) match by opcode/predicate
+  only and **ignore** flags like `samesign`.  If you replace the matched instruction with a
+  newly created one (which drops all flags), any `samesign` from the original is silently lost.
+- Example: `ICmpInst::Create()` drops all flags — if the matched `icmp` had `samesign`, the
+  replacement lacks it, and UGT vs UGT+samesign have different poison domains → miscompile.
+- Example: `replaceOperand()` retains flags — replacing `or disjoint`'s operand with constant
+  `true` without dropping `disjoint` introduces poison where there was none.
+- Example: `replaceOperand()` retains flags — replacing `icmp slt samesign`'s operand with one
+  that may have a different sign, but `samesign` is still set → poison.
 
 ### 2. Poison-Generating / UB-Implying Attributes and Metadata
 
