@@ -102,3 +102,55 @@ class TestTUIInit:
         app = HackmeTUI(config, MagicMock(), MagicMock(), MagicMock())
         app._login = "queried-user"
         assert app._resolve_login() == "queried-user"
+
+
+class TestRefreshHeader:
+    def test_header_without_service(self) -> None:
+        config = MagicMock()
+        config.github_login_override = "bot"
+        app = HackmeTUI(config, MagicMock(), MagicMock(), MagicMock())
+        app._pr_entries = {42: MagicMock()}
+        header = MagicMock()
+        app.query_one = MagicMock(return_value=header)
+        app._refresh_header()
+        content = header.update.call_args[0][0]
+        assert "Tracked: 1 PRs" in content
+        assert "Login: bot" in content
+        assert "LLVM:" not in content
+
+    def test_header_with_versions(self) -> None:
+        from datetime import datetime, timezone
+
+        config = MagicMock()
+        config.github_login_override = "bot"
+        app = HackmeTUI(config, MagicMock(), MagicMock(), MagicMock())
+        app._pr_entries = {}
+        svc = MagicMock()
+        svc.baseline_revision = "a" * 40
+        svc.alive2_revision = "b" * 40
+        svc.baseline_updated_at = datetime(2026, 4, 29, 10, 30, tzinfo=timezone.utc)
+        app._service = svc
+        header = MagicMock()
+        app.query_one = MagicMock(return_value=header)
+        app._refresh_header()
+        content = header.update.call_args[0][0]
+        assert "LLVM: aaaaaaaa" in content
+        assert "Alive2: bbbbbbbb" in content
+        assert "Updated: 2026-04-29 10:30" in content
+        assert "Tracked: 0 PRs" in content
+
+    def test_header_only_llvm(self) -> None:
+        config = MagicMock()
+        config.github_login_override = "bot"
+        app = HackmeTUI(config, MagicMock(), MagicMock(), MagicMock())
+        svc = MagicMock()
+        svc.baseline_revision = "c" * 40
+        svc.alive2_revision = None
+        svc.baseline_updated_at = None
+        app._service = svc
+        header = MagicMock()
+        app.query_one = MagicMock(return_value=header)
+        app._refresh_header()
+        content = header.update.call_args[0][0]
+        assert "LLVM: cccccccc" in content
+        assert "Alive2:" not in content

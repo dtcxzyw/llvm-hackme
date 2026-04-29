@@ -94,6 +94,8 @@ The `CommentState` enum controls the message posted to GitHub:
 | `STILL_REPRODUCES` | Previously reported bug still reproduces with current PR update |
 | `NO_ISSUE_FOUND_FOR_CURRENT_PATCH` | Previously reported bug no longer reproduces, and no new bug found |
 
+All comment states include baseline revision, PR head SHA, and patch SHA256 in both HTML comment markers (`<!-- llvm-hackme-baseline: ... -->`, etc.) and human-readable text (`**Baseline Revision**: \`...\``, etc.). For `BUG_FOUND` and `STILL_REPRODUCES` these are taken from the `Reproducer`; for `NO_ISSUE_FOUND_FOR_CURRENT_PATCH` they come from the current `report_result()` parameters.
+
 ### Pending / Retry
 
 When a transient error occurs during processing (network failures, build errors, API timeouts), the PR is NOT marked as processed. Instead:
@@ -234,6 +236,19 @@ This guarantees the service does not hang permanently regardless of how the hack
 When a bug is confirmed, the comment body embeds the IR inline as a ` ```llvm ` code block, with a `; RUN: opt ...` header line derived from the failing command. No local filesystem paths are exposed in the comment.
 
 The `source_content` field in `Reproducer` stores the full IR text. It is captured at fuzzer output time and propagated through verification → reporting so the comment never needs to read from disk.
+
+## TUI Header
+
+The `#status-header` widget (height: 2) displays two lines:
+- **Line 1** — LLVM and Alive2 revisions (short SHA, 8 chars) and last baseline update time, set by `HackmeService._baseline_update_loop` after a successful `build_baseline_toolchain()`. Before the first successful baseline build, the version line is absent.
+- **Line 2** — Tracked PR count and authenticated GitHub login.
+
+The version info is stored on `HackmeService` as public attributes:
+- `baseline_revision: str | None` — LLVM `origin/main` HEAD SHA (from `BuildManager.current_baseline_revision()`)
+- `alive2_revision: str | None` — Alive2 `origin/master` HEAD SHA (from `BuildManager.current_alive2_revision()`)
+- `baseline_updated_at: datetime | None` — UTC timestamp of the last successful baseline build
+
+The TUI reads these attributes via `self._service` on each `_refresh_ui` tick (every 500 ms).
 
 ## LLM Review
 

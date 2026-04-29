@@ -31,7 +31,13 @@ class TestCommentBody:
             patch_sha256="sha256abc",
             stacktrace="SIGSEGV at address 0x0",
         )
-        body = make_comment_body(CommentState.BUG_FOUND, reproducer)
+        body = make_comment_body(
+            CommentState.BUG_FOUND,
+            reproducer,
+            baseline_revision="rev123",
+            pr_head_sha="sha456",
+            patch_sha256="sha256abc",
+        )
         assert "The following correctness issue was found by" in body
         assert "llvm-hackme" in body
         assert "bug_found" in body
@@ -51,7 +57,13 @@ class TestCommentBody:
             patch_sha256="sha256abc",
             alive2_counterexample="Transformation doesn't verify!\nERROR: ...",
         )
-        body = make_comment_body(CommentState.BUG_FOUND, reproducer)
+        body = make_comment_body(
+            CommentState.BUG_FOUND,
+            reproducer,
+            baseline_revision="rev123",
+            pr_head_sha="sha456",
+            patch_sha256="sha256abc",
+        )
         assert "bug_found" in body
         assert "miscompilation" in body
         assert "Transformation doesn't verify!" in body
@@ -66,14 +78,32 @@ class TestCommentBody:
             patch_sha256="newsha256",
             stacktrace="crash",
         )
-        body = make_comment_body(CommentState.STILL_REPRODUCES, reproducer)
+        body = make_comment_body(
+            CommentState.STILL_REPRODUCES,
+            reproducer,
+            baseline_revision="rev123",
+            pr_head_sha="newsha",
+            patch_sha256="newsha256",
+        )
         assert "still_reproduces" in body
         assert "still reproduces" in body
+        assert "**Baseline Revision**: `rev123`" in body
+        assert "**PR Head SHA**: `newsha`" in body
+        assert "**Patch SHA256**: `newsha256`" in body
 
     def test_no_issue_found(self) -> None:
-        body = make_comment_body(CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH, None)
+        body = make_comment_body(
+            CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH,
+            None,
+            baseline_revision="baserev",
+            pr_head_sha="headsha",
+            patch_sha256="patchsha256",
+        )
         assert "no_issue_found" in body
         assert "did not identify" in body
+        assert "**Baseline Revision**: `baserev`" in body
+        assert "**PR Head SHA**: `headsha`" in body
+        assert "**Patch SHA256**: `patchsha256`" in body
 
     def test_first_line_is_exact(self) -> None:
         reproducer = Reproducer(
@@ -86,7 +116,13 @@ class TestCommentBody:
             stacktrace="st",
         )
         for state in CommentState:
-            body = make_comment_body(state, reproducer)
+            body = make_comment_body(
+                state,
+                reproducer,
+                baseline_revision="r",
+                pr_head_sha="s",
+                patch_sha256="p",
+            )
             first_line = body.strip().split("\n", 1)[0].strip()
             assert first_line == COMMENT_FIRST_LINE
 

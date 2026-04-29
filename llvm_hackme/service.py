@@ -75,6 +75,9 @@ class HackmeService:
         self._pr_in_build: set[int] = set()
         self._service_login = service_login
         self._status_callback = status_callback
+        self.baseline_revision: str | None = None
+        self.alive2_revision: str | None = None
+        self.baseline_updated_at: datetime | None = None
 
     async def run_forever(self) -> None:
         config = self._config
@@ -622,7 +625,15 @@ class HackmeService:
                     await self._builds.build_baseline_toolchain()
                     raise
 
-                LOGGER.info("Baseline updated to revision %s", revision)
+                alive2_rev = await self._builds.current_alive2_revision()
+                self.baseline_revision = revision
+                self.alive2_revision = alive2_rev
+                self.baseline_updated_at = datetime.now(timezone.utc)
+                LOGGER.info(
+                    "Baseline updated to LLVM %s, Alive2 %s",
+                    revision[:12],
+                    alive2_rev[:12],
+                )
             except asyncio.CancelledError:
                 raise
             except Exception:

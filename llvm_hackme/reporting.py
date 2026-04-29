@@ -63,15 +63,18 @@ def _make_run_line(command: list[str]) -> str:
 def make_comment_body(
     state: CommentState,
     reproducer: Reproducer | None,
+    *,
+    baseline_revision: str,
+    pr_head_sha: str,
+    patch_sha256: str,
 ) -> str:
     lines: list[str] = [COMMENT_FIRST_LINE, ""]
 
     lines.append(f"{_MARKER_PREFIX}state: {state.value} -->")
-
+    lines.append(f"{_MARKER_PREFIX}baseline: {baseline_revision} -->")
+    lines.append(f"{_MARKER_PREFIX}head-sha: {pr_head_sha} -->")
+    lines.append(f"{_MARKER_PREFIX}patch-sha256: {patch_sha256} -->")
     if reproducer is not None:
-        lines.append(f"{_MARKER_PREFIX}baseline: {reproducer.baseline_revision} -->")
-        lines.append(f"{_MARKER_PREFIX}head-sha: {reproducer.pr_head_sha} -->")
-        lines.append(f"{_MARKER_PREFIX}patch-sha256: {reproducer.patch_sha256} -->")
         lines.append(f"{_MARKER_PREFIX}kind: {reproducer.kind.value} -->")
 
     lines.append("")
@@ -115,10 +118,6 @@ def make_comment_body(
             lines.append("```")
             lines.append("")
 
-        lines.append(f"**Baseline Revision**: `{reproducer.baseline_revision}`")
-        lines.append(f"**PR Head SHA**: `{reproducer.pr_head_sha}`")
-        lines.append(f"**Patch SHA256**: `{reproducer.patch_sha256}`")
-
     elif state == CommentState.STILL_REPRODUCES and reproducer is not None:
         lines.append("## Status: Previously reported issue still reproduces")
         lines.append("")
@@ -126,8 +125,6 @@ def make_comment_body(
             f"The correctness bug ({reproducer.kind.value}) previously reported "
             "still reproduces with the current PR update."
         )
-        lines.append(f"**PR Head SHA**: `{reproducer.pr_head_sha}`")
-        lines.append(f"**Patch SHA256**: `{reproducer.patch_sha256}`")
 
     elif state == CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH:
         lines.append("## Status: Previously reported issue no longer reproduces")
@@ -138,6 +135,11 @@ def make_comment_body(
             " not identify any new correctness bugs (opt crashes or Alive2"
             " miscompilations)."
         )
+
+    lines.append("")
+    lines.append(f"**Baseline Revision**: `{baseline_revision}`")
+    lines.append(f"**PR Head SHA**: `{pr_head_sha}`")
+    lines.append(f"**Patch SHA256**: `{patch_sha256}`")
 
     return "\n".join(lines) + "\n"
 
@@ -194,7 +196,13 @@ async def report_result(
         if reproducer is not None:
             state.save_reproducer(pr_update.pr.number, reproducer)
             if old_reproducer is not None and old_reproducer.kind == reproducer.kind:
-                body = make_comment_body(CommentState.STILL_REPRODUCES, reproducer)
+                body = make_comment_body(
+                    CommentState.STILL_REPRODUCES,
+                    reproducer,
+                    baseline_revision=reproducer.baseline_revision,
+                    pr_head_sha=reproducer.pr_head_sha,
+                    patch_sha256=reproducer.patch_sha256,
+                )
                 try:
                     await github.update_issue_comment(existing.id, body)
                 except Exception:
@@ -222,7 +230,13 @@ async def report_result(
                 )
                 return
 
-            body = make_comment_body(CommentState.BUG_FOUND, reproducer)
+            body = make_comment_body(
+                CommentState.BUG_FOUND,
+                reproducer,
+                baseline_revision=reproducer.baseline_revision,
+                pr_head_sha=reproducer.pr_head_sha,
+                patch_sha256=reproducer.patch_sha256,
+            )
             try:
                 updated = await github.update_issue_comment(existing.id, body)
             except Exception:
@@ -263,7 +277,11 @@ async def report_result(
         else:
             if old_reproducer is not None:
                 body = make_comment_body(
-                    CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH, None
+                    CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH,
+                    None,
+                    baseline_revision=baseline_revision,
+                    pr_head_sha=pr_update.pr.head_sha,
+                    patch_sha256=pr_update.patch_sha256,
                 )
                 try:
                     await github.update_issue_comment(existing.id, body)
@@ -297,7 +315,13 @@ async def report_result(
     if reproducer is None:
         return
 
-    body = make_comment_body(CommentState.BUG_FOUND, reproducer)
+    body = make_comment_body(
+        CommentState.BUG_FOUND,
+        reproducer,
+        baseline_revision=reproducer.baseline_revision,
+        pr_head_sha=reproducer.pr_head_sha,
+        patch_sha256=reproducer.patch_sha256,
+    )
     state.save_reproducer(pr_update.pr.number, reproducer)
     try:
         created = await github.create_issue_comment(pr_update.pr.number, body)

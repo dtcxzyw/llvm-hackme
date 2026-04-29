@@ -65,7 +65,7 @@ class HackmeTUI(App[None]):
     }
 
     #status-header {
-        height: 1;
+        height: 2;
         content-align: center middle;
         background: $surface;
     }
@@ -180,10 +180,26 @@ class HackmeTUI(App[None]):
         return None
 
     def _refresh_header(self) -> None:
+        parts: list[str] = []
+        svc = self._service
+        if svc is not None:
+            llvm = svc.baseline_revision
+            alive2 = svc.alive2_revision
+            updated = svc.baseline_updated_at
+            if llvm and alive2:
+                parts.append(
+                    f"LLVM: {llvm[:8]}  Alive2: {alive2[:8]}  "
+                    f"Updated: {updated:%Y-%m-%d %H:%M}"
+                    if updated
+                    else ""
+                )
+            elif llvm:
+                parts.append(f"LLVM: {llvm[:8]}")
+            elif alive2:
+                parts.append(f"Alive2: {alive2[:8]}")
         count = len(self._pr_entries)
-        self.query_one("#status-header", Static).update(
-            f"Tracked: {count} PRs   Login: {self._resolve_login()}"
-        )
+        parts.append(f"Tracked: {count} PRs   Login: {self._resolve_login()}")
+        self.query_one("#status-header", Static).update("\n".join(parts))
 
     def _refresh_pr_panel(self) -> None:
         if not self._pr_entries:

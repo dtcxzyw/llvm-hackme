@@ -203,6 +203,72 @@ submission, read the rejection reason carefully:
 
 ## Miscompilation Heuristics
 
+### 0. Proof Methodology — Write Generalized Proofs, Then Refine
+
+When hunting miscompilations, follow the workflow described in
+`llvm/docs/InstCombineContributorGuide.md` §Proofs:
+
+1. **Write a generalized proof** — use generic values (parameters, not hardcoded
+   constants).  Express preconditions with `@llvm.assume` and `icmp`.  This proves
+   (or disproves) the transform for *all* possible inputs within the stated constraints.
+
+   Example generalized proof for a fold that replaces `(X sdiv C) slt X` with `X sgt 0`:
+   ```llvm
+   define i1 @src(i8 %x, i8 %C) {
+     %precond = icmp ne i8 %C, 1
+     call void @llvm.assume(i1 %precond)
+     %div = sdiv i8 %x, %C
+     %cmp = icmp slt i8 %div, %x
+     ret i1 %cmp
+   }
+   define i1 @tgt(i8 %x, i8 %C) {
+     %cmp = icmp sgt i8 %x, 0
+     ret i1 %cmp
+   }
+   ```
+
+2. **Run `hack_alive2` on the generalized proof.**  If alive2 reports `miscompile: true`,
+   read the `counterexample` to see which specific input values caused the violation.
+
+3. **Refine the counterexample into a concrete reproducer.**  Replace the generic
+   parameters (e.g., `%C`) with the **specific constants** from the counterexample,
+   remove `@llvm.assume` calls, and inline the preconditions so the fold actually
+   fires.  The refined IR must use only constants that satisfy the code's actual
+   preconditions (e.g., if the fold only fires when a divisor is a known power of two,
+   the constant must be a power of two).
+
+   ```llvm
+   ; After refinement: %C replaced with the counterexample constant (e.g., -1),
+   ; precondition inlined so the fold fires.
+   define i1 @src(i8 %x) {
+     %div = sdiv i8 %x, -1
+     %cmp = icmp slt i8 %div, %x
+     ret i1 %cmp
+   }
+   define i1 @tgt(i8 %x) {
+     %cmp = icmp sgt i8 %x, 0
+     ret i1 %cmp
+   }
+   ```
+
+4. **Submit the refined IR** via `hack_submit`.  The server runs both baseline and PR
+   opts on a combined module and verifies the baseline is correct while the PR is not.
+
+**Key rules for `@llvm.assume` preconditions:**
+- alive2 respects `@llvm.assume` and verifies correctness *under* those assumptions.
+- The fold may only fire when operands satisfy additional conditions (e.g., operand
+  is a constant, no overflow).  Express those conditions in `@llvm.assume` in the
+  generalized proof.
+- After the generalized proof confirms a miscompilation exists under those assumptions,
+  the refined reproducer must hardcode the counterexample values so the fold fires
+  on both baseline and PR opt.
+
+**Performance tip for pointer proofs:**  To avoid alive2 timeouts on proofs involving
+pointers, reduce the pointer width by specifying a custom data layout:
+```llvm
+target datalayout = "p:8:8:8"
+```
+
 ### 1. Poison-Generating Instruction Flags
 
 When a fold replaces operands, removes guarding conditions, or changes semantics,
@@ -223,9 +289,9 @@ you **MUST** check whether these flags are still valid and drop them if not:
 - `ICmpInst::Create()` / `BinaryOperator::Create()` **drops** all flags — old flags are lost.
 - When pattern-matching instructions with flags (`m_SpecificCmp`, `m_Add`, `m_Specific`, etc.),
   compare flags **bitwise**, not just the opcode or predicate.
-- Pattern matchers like `m_SpecificCmp` matched by predicate **ignoring** `samesign` → miscompile (121110).
-- `disjoint` on `or` not dropped when operand replaced with constant `true` → poison (137937).
-- `samesign` on icmp retained after `replaceOperand` changed operand to one that may differ in sign → miscompile (112476).
+- Pattern matchers like `m_SpecificCmp` matched by predicate **ignoring** `samesign` → miscompile.
+- `disjoint` on `or` not dropped when operand replaced with constant `true` → poison.
+- `samesign` on icmp retained after `replaceOperand` changed operand to one that may differ in sign → miscompile.
 
 ### 2. Poison-Generating / UB-Implying Attributes and Metadata
 
@@ -240,12 +306,6 @@ you **MUST** check whether these flags are still valid and drop them if not:
 
 **Non-UB metadata on load instructions** (hints only, no UB if violated):
 - `!range`, `!nonnull`, `!align`, `!dereferenceable`, `!dereferenceable_or_null` — these are **optimization hints** attached to load results.  Dropping them degrades optimization but does NOT introduce UB.  Do NOT confuse them with the **attribute** variants above which **do** imply UB.
-
-**Examples from real bugs:**
-- Removing a guard `icmp ne %x, 0` before `@llvm.ctpop` without dropping `range` attribute → poison (111934).
-- Setting `is_zero_poison=true` on `@llvm.cttz` without dropping `noundef` → immediate UB on zero input (112068).
-- `range` not dropped in `foldBitCeil` when input may be zero → poison (112076).
-- Replacing `@llvm.ctpop` operand without checking `range` validity → poison (111934).
 
 ### 3. Fast-Math Flags
 
@@ -274,22 +334,22 @@ Folding `icmp eq ptr %gep1, %gep2` to `icmp eq iN %idx1, %idx2` **requires**:
 - Both GEPs have `inbounds` **and** the compared indices have `nsw`/`nuw`
 - Without nowrap, the scale factor may cause wrapping that makes index equality ≠ address equality
 
-Example: 121890 — fold assumed index overflow is harmless but it was not.
+Example: fold assumed index overflow is harmless but it was not.
 
 ### 5. SCEV and Loop Analysis Traps
 
 - **`std::optional<bool>` coercion**: `if (checkCondition(...))` coerces `false` to `true`.
   Must use `if (checkCondition(...).value_or(false))` or `checkCondition(...) == true`.
-  Look for this pattern in patches touching analysis predicates with optional return types (105785).
+  Look for this pattern in patches touching analysis predicates with optional return types.
 - **Sign-extension vs zero-extension**: when SCEV replaces a stride constant from a `sext` input,
-  the constant must be sign-extended, not zero-extended (91369).
+  the constant must be sign-extended, not zero-extended.
 - **SCEV replacement scope**: SCEV-based operand simplification is only safe for live-in values,
-  never for reduction phis or loop-variant values (119173).
+  never for reduction phis or loop-variant values.
 - **Decomposition overflow**: intermediate arithmetic during GEP/index decomposition may overflow;
-  overflowing coefficients invalidate the result (140481).
+  overflowing coefficients invalidate the result.
 - **Predicated path poison**: before treating a load as safe to speculatively execute, check that
   no address operand can be poison along the predicated path — a phi from the vector.body edge
-  may carry poison into the load (142957).
+  may carry poison into the load.
 
 ### 6. Overly Relaxed Preconditions
 
@@ -337,10 +397,17 @@ All tool invocations have internal timeouts.  If a tool times out or returns an 
 
 alive2 cannot analyze all IR.  It will error on:
 - Vector operations, shufflevector, extractelement/insertelement
-- Some intrinsics (e.g. `@llvm.assume`, `@llvm.experimental.*`)
+- Some intrinsics (e.g. `@llvm.experimental.*`)
 - Very large functions or modules
 - Floating-point operations in certain modes
 - Memory operations without proper `data layout` in the module
+
+Note: `@llvm.assume` and `@llvm.ctpop` **are** supported by alive2 and should be
+used to express preconditions in generalized proofs (see Miscompilation Heuristics §0).
+For pointer-heavy proofs, use a reduced pointer width to avoid timeouts:
+```llvm
+target datalayout = "p:8:8:8"
+```
 
 If alive2 errors out, the result is NOT a confirmed miscompilation.  Fall back to
 checking for crashes with `hack_pr_opt`, or simplify the IR to avoid the unsupported

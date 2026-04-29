@@ -190,6 +190,14 @@ class BuildManager:
         )
         return result.stdout.strip()
 
+    async def current_alive2_revision(self) -> str:
+        result = await run_command(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.config.alive2_dir,
+            env=minimal_execution_env(),
+        )
+        return result.stdout.strip()
+
     def toolchain_paths(self, baseline_revision: str) -> ToolchainPaths:
         return ToolchainPaths(
             baseline_revision=baseline_revision,
