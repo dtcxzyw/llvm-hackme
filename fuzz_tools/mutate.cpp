@@ -738,6 +738,7 @@ bool insertNodes(Instruction &I) {
         switch (randomUInt(1)) {
         case 0:
           V = Builder.CreateFNeg(&I);
+          break;
         case 1:
           if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
             auto IID = II->getIntrinsicID();

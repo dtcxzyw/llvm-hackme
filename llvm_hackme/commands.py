@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import contextvars
 import os
 import re
-import resource
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -55,16 +53,22 @@ async def run_command(
     process_env = dict(os.environ)
     if env is not None:
         process_env.update(env)
-    preexec_fn = None
+
+    limit_prefix: list[str] = []
     if memory_limit_bytes is not None:
-        preexec_fn = _limit_address_space(memory_limit_bytes)
+        import shutil as _shutil
+
+        prlimit = _shutil.which("prlimit")
+        if prlimit:
+            limit_prefix = [prlimit, f"--as={memory_limit_bytes}"]
+
     process = await asyncio.create_subprocess_exec(
+        *limit_prefix,
         *normalized,
         cwd=str(cwd) if cwd is not None else None,
         env=process_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        preexec_fn=preexec_fn,
     )
     try:
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -142,7 +146,7 @@ def append_command_log_message(message: str) -> None:
 
 def minimal_execution_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     env = {
-        "HOME": os.environ.get("HOME", ""),
+        "HOME": os.environ.get("HOME", "/tmp"),
         "PATH": os.environ.get("PATH", ""),
         "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
@@ -151,16 +155,6 @@ def minimal_execution_env(extra: Mapping[str, str] | None = None) -> dict[str, s
     if extra is not None:
         env.update(extra)
     return env
-
-
-def _limit_address_space(memory_limit_bytes: int):
-    def apply_limit() -> None:
-        with contextlib.suppress(OSError, ValueError):
-            resource.setrlimit(
-                resource.RLIMIT_AS, (memory_limit_bytes, memory_limit_bytes)
-            )
-
-    return apply_limit
 
 
 _DISK_FULL_RE = re.compile(

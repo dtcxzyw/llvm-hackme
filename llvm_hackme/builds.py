@@ -217,6 +217,7 @@ class BuildManager:
         await run_command(
             ["git", "clone", repository, path],
             env=minimal_execution_env(),
+            timeout=1800,
         )
 
     async def _sync_pr_worktree(self, baseline_revision: str) -> None:

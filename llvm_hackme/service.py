@@ -609,21 +609,20 @@ class HackmeService:
                         revision,
                     ) = await self._builds.sync_baseline_sources()
 
-                try:
-                    await self._builds.build_baseline_toolchain()
-                except Exception:
-                    _log_command_error(sys.exc_info()[1], "Baseline build failed")
-                    LOGGER.exception(
-                        "Baseline build failed, rolling back %s → %s and %s → %s",
-                        self._config.llvm_project_dir,
-                        old_llvm,
-                        self._config.alive2_dir,
-                        old_alive2,
-                    )
-                    async with self._build_lock:
+                    try:
+                        await self._builds.build_baseline_toolchain()
+                    except Exception:
+                        _log_command_error(sys.exc_info()[1], "Baseline build failed")
+                        LOGGER.exception(
+                            "Baseline build failed, rolling back %s → %s and %s → %s",
+                            self._config.llvm_project_dir,
+                            old_llvm,
+                            self._config.alive2_dir,
+                            old_alive2,
+                        )
                         await self._builds.rollback_sources(old_llvm, old_alive2)
-                    await self._builds.build_baseline_toolchain()
-                    raise
+                        await self._builds.build_baseline_toolchain()
+                        raise
 
                 alive2_rev = await self._builds.current_alive2_revision()
                 self.baseline_revision = revision

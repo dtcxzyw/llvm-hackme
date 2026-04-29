@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -33,6 +34,7 @@ _MUTATE_TIMEOUT = 30
 _OPT_TIMEOUT = 60
 _ALIVE2_TIMEOUT = 60
 _SMT_TO = 100
+# Fuzzer uses a low smt-to for speed; verification uses 10000 for thoroughness.
 _JITTER_US = 10_000
 
 
@@ -154,7 +156,6 @@ class FuzzRunner:
         )
 
     def _collect_seeds(self, patch: str) -> list[tuple[str, str]]:
-        func_re = re.compile(r"define [^@]+@([-\w]+)\(")
         seeds: list[tuple[str, str]] = []
         current_file = ""
         seen: set[tuple[str, str]] = set()
@@ -164,7 +165,7 @@ class FuzzRunner:
                 current_file = line.removeprefix("diff --git a/").split(" ", 1)[0]
                 continue
             if current_file.endswith(".ll"):
-                matched = func_re.search(line)
+                matched = FUNC_RE.search(line)
                 if matched:
                     func_name = matched.group(1)
                     key = (current_file, func_name)
@@ -214,7 +215,9 @@ class FuzzRunner:
         pr_head_sha: str,
         pass_name: str,
     ) -> FuzzResult:
-        processes = os.cpu_count()
+        # os.cpu_count() returns None when the CPU count is undetermined
+        # (e.g. some container environments).  Fall back to 32.
+        processes = os.cpu_count() or 32
         files_per_batch = 4 * processes
         deadline = time.monotonic() + self._fuzz_budget
         idx = 0
@@ -243,7 +246,7 @@ class FuzzRunner:
                 for i in range(idx, batch_end):
                     fut = pool.submit(_run_fuzz_iteration, ctx, i)
                     futures[fut] = i
-                    _jitter()
+                    await _jitter()
 
                 idx = batch_end
 
@@ -357,7 +360,7 @@ def _run_fuzz_iteration(ctx: _WorkerContext, idx: int) -> Reproducer | None:
         proc = _run_sync(
             [
                 ctx.alive2_bin,
-                "--smt-to=100",
+                f"--smt-to={_SMT_TO}",
                 "--disable-undef-input",
                 str(src_file),
                 str(tgt_file),
@@ -368,7 +371,7 @@ def _run_fuzz_iteration(ctx: _WorkerContext, idx: int) -> Reproducer | None:
         )
     except subprocess.TimeoutExpired:
         return None
-    except (subprocess.CalledProcessError, OSError):
+    except OSError:
         return None
 
     combined = proc.stdout + proc.stderr
@@ -380,8 +383,7 @@ def _run_fuzz_iteration(ctx: _WorkerContext, idx: int) -> Reproducer | None:
         if _is_disk_full(combined):
             return None
         source_path = src_file
-        func_re = re.compile(r"define [^@]+@([-\w]+)\(")
-        func_match = func_re.search(src_file.read_text(errors="replace"))
+        func_match = FUNC_RE.search(src_file.read_text(errors="replace"))
         if func_match:
             extracted = work / f"correctness-{idx}.extracted.ll"
             try:
@@ -464,7 +466,7 @@ def _reduce_crash(
     return None
 
 
-def _jitter() -> None:
+async def _jitter() -> None:
     import random
 
-    time.sleep(random.randint(0, _JITTER_US) / 1_000_000)
+    await asyncio.sleep(random.randint(0, _JITTER_US) / 1_000_000)

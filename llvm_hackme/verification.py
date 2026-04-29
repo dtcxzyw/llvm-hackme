@@ -165,6 +165,8 @@ async def check_miscompilation(
                 alive_result = await run_command(
                     [
                         str(alive_tv),
+                        # High smt-to for thorough verification (fuzzer uses
+                        # 100 for speed).
                         "--smt-to=10000",
                         "--disable-undef-input",
                         *alive2_extra_args,
@@ -297,9 +299,8 @@ async def _verify_regression_crash(
 ) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
-        reason = f"IR contains forbidden fast-math flags: {reject}"
-        LOGGER.warning(reason)
-        return None, reason
+        LOGGER.warning(reject)
+        return None, reject
 
     reject = _validate_ir_no_undef(ir_content)
     if reject:
@@ -352,9 +353,8 @@ async def _verify_regression_miscompilation(
 ) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
     if reject:
-        reason = f"IR contains forbidden fast-math flags: {reject}"
-        LOGGER.warning(reason)
-        return None, reason
+        LOGGER.warning(reject)
+        return None, reject
 
     reject = _validate_ir_no_undef(ir_content)
     if reject:

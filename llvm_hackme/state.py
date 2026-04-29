@@ -100,16 +100,12 @@ class StateStore:
                 pending_until=None,
             )
         processed_at = None
-        raw_processed = (
-            row["processed_at"] if "processed_at" in row.keys() else None  # noqa: SIM118
-        )
+        raw_processed = row["processed_at"] if "processed_at" in row.keys() else None  # noqa: SIM118
         if raw_processed:
             processed_at = datetime.fromisoformat(raw_processed)
         retry_count = int(row["retry_count"]) if "retry_count" in row.keys() else 0  # noqa: SIM118
         pending_until = None
-        raw_pending = (
-            row["pending_until"] if "pending_until" in row.keys() else None  # noqa: SIM118
-        )
+        raw_pending = row["pending_until"] if "pending_until" in row.keys() else None  # noqa: SIM118
         if raw_pending:
             pending_until = datetime.fromisoformat(raw_pending)
         return StoredPullState(
