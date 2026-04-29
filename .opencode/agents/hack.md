@@ -232,26 +232,23 @@ When hunting miscompilations, follow the workflow described in
 3. **Refine the counterexample into a concrete reproducer.**  Replace the generic
    parameters (e.g., `%C`) with the **specific constants** from the counterexample,
    remove `@llvm.assume` calls, and inline the preconditions so the fold actually
-   fires.  The refined IR must use only constants that satisfy the code's actual
-   preconditions (e.g., if the fold only fires when a divisor is a known power of two,
-   the constant must be a power of two).
+   fires.  Keep only the `@src` function — do NOT include `@tgt`.  The server
+   generates the target by running baseline and PR opt, then compares them.
 
    ```llvm
-   ; After refinement: %C replaced with the counterexample constant (e.g., -1),
-   ; precondition inlined so the fold fires.
-   define i1 @src(i8 %x) {
+   ; After refinement: %C replaced with counterexample constant -1,
+   ; @llvm.assume removed, precondition inlined.
+   define i1 @f(i8 %x) {
      %div = sdiv i8 %x, -1
      %cmp = icmp slt i8 %div, %x
      ret i1 %cmp
    }
-   define i1 @tgt(i8 %x) {
-     %cmp = icmp sgt i8 %x, 0
-     ret i1 %cmp
-   }
    ```
 
-4. **Submit the refined IR** via `hack_submit`.  The server runs both baseline and PR
-   opts on a combined module and verifies the baseline is correct while the PR is not.
+4. **Submit the refined IR** via `hack_submit(kind="miscompilation")`.  The server
+   runs `baseline_opt opt_args ir.ll` and `pr_opt opt_args ir.ll`, then compares
+   the two outputs with alive-tv.  If the PR transformation diverges from baseline,
+   the submission is accepted.
 
 **Key rules for `@llvm.assume` preconditions:**
 - alive2 respects `@llvm.assume` and verifies correctness *under* those assumptions.
@@ -397,6 +394,44 @@ target datalayout = "p:8:8:8"
 If alive2 errors out, the result is NOT a confirmed miscompilation.  Fall back to
 checking for crashes with `hack_pr_opt`, or simplify the IR to avoid the unsupported
 feature.
+
+## Verification Flow (server-side)
+
+When you call `hack_submit`, the server performs the following checks before
+accepting the submission:
+
+### Crash (`kind: "crash"`)
+
+1. Server runs `baseline_opt opt_args ir.ll`.  If it crashes too, the bug is
+   pre-existing → rejected: **"baseline also crashes"**.
+2. If baseline passes, server runs `pr_opt opt_args ir.ll`.  If it also passes
+   (no crash), rejected: **"PR opt did not crash"**.
+3. If baseline passed but PR crashed → accepted.
+
+### Miscompilation (`kind: "miscompilation"`)
+
+The `ir` may contain one or more functions.  The server **does NOT** look for
+`@src`/`@tgt` naming — it runs opt and compares the output to the input.
+
+1. Server runs `baseline_opt opt_args ir.ll -S` → `baseline_out.ll`.
+2. Server runs `pr_opt opt_args ir.ll -S` → `pr_out.ll`.
+3. Server runs `alive_tv --smt-to=10000 --disable-undef-input baseline_out.ll pr_out.ll`.
+   - If alive2 says 0 incorrect transformations → both opts produce equivalent IR → **rejected**.
+   - If alive2 says ≥1 incorrect transformations → the PR introduces a semantics change → **accepted**.
+4. Before running alive-tv, the server strips `declare @llvm.*` lines from both
+   outputs.  Unrecognised intrinsics cause alive2 to error out rather than silently
+   producing false results.
+
+**Key insight**: the miscompilation IR should be a function that the PR opt
+transforms (incorrectly) but the baseline opt handles correctly (or does not
+transform at all).  The two opt outputs diverge → alive2 catches it.
+
+**Contrast with `hack_alive2`**: `hack_alive2(ir)` takes `@src`/`@tgt` and feeds
+them directly to alive-tv with no opt step.  `hack_submit` with `kind: miscompilation`
+takes a single function, runs both opts, and compares the outputs.  The two tools
+serve different stages:
+- `hack_alive2` — generalized proof (does the transform hold for all inputs?)
+- `hack_submit` — concrete reproducer (does the buggy opt actually produce wrong output?)
 
 ## Submission Format
 
