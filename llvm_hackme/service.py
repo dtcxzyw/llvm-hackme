@@ -185,6 +185,10 @@ class HackmeService:
         new_update = PullRequestUpdate(
             pr=new_pr, patch=patch, patch_sha256=patch_sha256
         )
+        # NOTE: state is intentionally not updated here via record_pr_update().
+        # The enqueued task will call mark_processed() on completion, and the
+        # next scanner cycle will naturally pick up the new head_sha.  Updating
+        # the DB here would risk overwriting a concurrently-set processed_at.
         self._schedule_pr_task(new_update)
         return True
 
@@ -217,6 +221,8 @@ class HackmeService:
                 return
 
             pass_name = guess_pass_name(update.patch)
+            # Intentionally skip PRs whose changed files do not match any
+            # known pass keyword — there is nothing to fuzz or hack on.
             if pass_name is None:
                 LOGGER.warning("Could not guess pass name for PR #%s", pr_number)
                 await self._emit_status(pr, "passed")

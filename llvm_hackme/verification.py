@@ -180,7 +180,7 @@ async def check_miscompilation(
                 return None
 
             stdout = alive_result.stdout
-            if _output_has_disk_full_error(text=stdout):
+            if _output_has_disk_full_error(result=alive_result, text=stdout):
                 return None
             correct = (
                 "0 incorrect transformations" in stdout

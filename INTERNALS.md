@@ -140,7 +140,7 @@ Each PR gets at most one llvm-hackme comment. Two layers enforce this:
 **Scanner logic on each cycle:**
 
 1. Fetch open, non-draft PRs targeting `main`, updated since `scan_watermark - overlap`.
-2. For each PR, fetch changed files and skip if `is_relevant_pr_file()` returns false for all.
+2. For each PR, fetch changed files and skip if `is_source_file()` returns false for all.
 3. Fetch the patch and compute `patch_sha256`.
 4. Check `pull_state`:
    - If `head_sha == pr.head_sha` AND `patch_sha256 == computed` AND `processed_at is not null`: skip (already processed).
