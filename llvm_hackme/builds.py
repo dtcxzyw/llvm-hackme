@@ -44,7 +44,6 @@ class BuildManager:
         }
 
     _BUILD_TIMEOUT = 3600
-    _CMDLINE_TIMEOUT = 120
 
     async def sync_baseline_sources(self) -> tuple[str, str, str]:
         self.config.work_dir.mkdir(parents=True, exist_ok=True)
