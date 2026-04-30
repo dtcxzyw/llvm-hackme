@@ -258,6 +258,9 @@ the unroll to be feasible.  Maximum unroll depth is 128.  Pass these via
 alive2_args: "-src-unroll=4 -tgt-unroll=4"
 ```
 
+**Use the todowrite tool to track your progress through these steps.**  Mark
+each step complete as you finish it so you don't lose track in complex patches.
+
 ## Miscompilation Heuristics
 
 ### 1. Poison-Generating Instruction Flags

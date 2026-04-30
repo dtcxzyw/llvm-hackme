@@ -187,6 +187,9 @@ rejects your submission, read the rejection reason carefully:
   Refine the test case or try different `opt_args`.
 - Other reasons — fix the IR or description as indicated and resubmit.
 
+**Use the todowrite tool to track your progress through these steps.**  Mark
+each step complete as you finish it so you don't lose track in complex patches.
+
 ## Crash Heuristics
 
 1. **Assertions** — the patch may introduce a new `assert()` or rely on an implicit
