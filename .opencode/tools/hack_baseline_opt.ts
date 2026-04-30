@@ -6,7 +6,7 @@ const ENOSPC = 28
 
 export default tool({
   description:
-    "Run the baseline (unpatched) opt on LLVM IR text.  Returns exit code, stderr, and whether it crashed.",
+    "Run the baseline (unpatched) opt on LLVM IR text.  Returns exit code, stderr, and whether it crashed.  -S is always passed; do NOT add -S or -o flags to opt_args.",
   args: {
     ir: tool.schema
       .string()
@@ -27,7 +27,7 @@ export default tool({
       const prlimit = Bun.which("prlimit")
       if (prlimit) cmd.push(prlimit, `--as=${ctx.opt_memory_limit_bytes}`)
     }
-    cmd.push(ctx.baseline_opt, "-S", "-o", "/dev/null", tmp, ...extra)
+    cmd.push(ctx.baseline_opt, "-S", tmp, ...extra)
 
     const proc = Bun.spawnSync({ cmd, env: minimalEnv(), stdout: "pipe", stderr: "pipe" })
     try { fs.unlinkSync(tmp) } catch {}

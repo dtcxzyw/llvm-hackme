@@ -79,9 +79,8 @@ Returns JSON:
 ```
 - `crashed: true` means `exit_code != 0` (crash, assertion failure, or OOM kill).
 - `stdout`/`stderr` are truncated to the last 8000 characters.
-- **Always include `-S`** in `opt_args` to get text IR in stdout.  Without `-S`, opt emits
-  bitcode which appears empty in the captured output.  Do **NOT** add `-o -` or
-  `-o /dev/stdout` — the tool captures stdout automatically and these flags are redundant.
+- **`-S` is always passed automatically** — stdout contains text IR.  Do NOT add
+  `-S`, `-o -`, or `-o /dev/stdout` to `opt_args`; they are redundant.
 
 **`hack_baseline_opt(ir, opt_args)`** — same as above but uses baseline `opt`.
 You *may* use this to sanity-check your IR, but the server-side submit verification
