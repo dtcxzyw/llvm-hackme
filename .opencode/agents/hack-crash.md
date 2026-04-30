@@ -62,7 +62,6 @@ are your **analysis phase**.  Output the annotation table, then move to step 5
 read `hack/context.json` first.  It contains these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
-- `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
 - `suggested_opt_args` — space-separated opt arguments to start with, e.g. `-passes=instcombine<no-verify-fixpoint>`
 - `work_dir` — scratch directory; IR paths resolved relative to this directory
 - `baseline_opt` — path to the baseline (unpatched) `opt` binary

@@ -70,7 +70,6 @@ the patch.  Do NOT retry the same proof.
 read `hack/context.json` first.  It contains these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
-- `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
 - `suggested_opt_args` — space-separated opt arguments to start with, e.g. `-passes=instcombine<no-verify-fixpoint>`
 - `work_dir` — scratch directory; IR paths resolved relative to this directory
 - `baseline_opt` — path to the baseline (unpatched) `opt` binary
@@ -384,9 +383,8 @@ alive2 cannot analyze all IR.  It will error on:
 Note: `@llvm.assume` and `@llvm.ctpop` **are** supported by alive2 and should be
 used to express preconditions in generalized proofs.
 
-If alive2 errors out, the result is NOT a confirmed miscompilation.  Fall back to
-checking for crashes with `hack_pr_opt`, or simplify the IR to avoid the unsupported
-feature.
+If alive2 errors out, the result is NOT a confirmed miscompilation.  Simplify the
+IR to avoid the unsupported feature, or move on to the next candidate.
 
 ## Verification Flow (server-side)
 
