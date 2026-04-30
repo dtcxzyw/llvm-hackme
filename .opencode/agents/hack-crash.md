@@ -206,8 +206,6 @@ each step complete as you finish it so you don't lose track in complex patches.
 6. **Flag / attribute violations** — instructions created or mutated in-place
     may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
     (range, noundef, align) that trigger asserts when the flag contract is violated.
-7. **Poison assumptions** — if the patch assumes an operand is non-poison,
-    feed poison to trigger UB.
 
 ## Tool Timeouts
 
