@@ -158,9 +158,6 @@ and `llvm-project-pr/` (PR) at the relevant offsets.  Also read any referenced
 declarations (headers, base classes, helper utilities) needed to understand the
 transform logic, preconditions, and flag/metadata handling.
 
-Do NOT produce an annotation table — focus entirely on understanding what the
-transform does, what preconditions it checks, and what invariants it relies on.
-
 ### 4. Write a generalized proof
 
 For each transform identified in the patch, write a **generalized** `@src`/`@tgt`
