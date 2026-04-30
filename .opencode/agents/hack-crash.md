@@ -201,15 +201,12 @@ each step complete as you finish it so you don't lose track in complex patches.
     Is the pointer/index range validated before dereference?
 4. **Dominance violations** — creating an instruction at a position where its
     operands are not dominated.
-5. **FixedVector vs ScalableVector** — mixing `<N x ty>` with `<vscale x N x ty>`.
-    `cast<FixedVectorType>(Ty)` is a common assert point when scalable vectors
-    reach code that assumes fixed-width.
-6. **Operator / intrinsic matching** — if an optimization pattern-matches on
+5. **Operator / intrinsic matching** — if an optimization pattern-matches on
     multiple operators, check that their opcodes or intrinsic IDs match before folding.
-7. **Flag / attribute violations** — instructions created or mutated in-place
+6. **Flag / attribute violations** — instructions created or mutated in-place
     may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
     (range, noundef, align) that trigger asserts when the flag contract is violated.
-8. **Poison assumptions** — if the patch assumes an operand is non-poison,
+7. **Poison assumptions** — if the patch assumes an operand is non-poison,
     feed poison to trigger UB.
 
 ## Tool Timeouts
