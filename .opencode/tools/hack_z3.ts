@@ -8,6 +8,8 @@ export default tool({
   },
   async execute(args) {
     const proc = Bun.spawnSync({
+      // Memory limit (4 GB) and timeout (30 s) are hardcoded — z3 uses
+      // its own -memory flag, not the prlimit wrapper that other tools use.
       cmd: ["z3", "-in", "-T:30", "-memory:4096"],
       stdin: Bun.plainText(args.smtlib2),
       stdout: "pipe",

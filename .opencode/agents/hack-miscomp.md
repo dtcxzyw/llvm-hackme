@@ -32,9 +32,9 @@ incorrect via a generalized `@src`/`@tgt` proof.  This is non-negotiable.
 ## Time Management
 
 You have a limited time budget.  Read the patch diff and source files to
-understand the transform, then write generalized proofs.  Do NOT spend excessive
-time reading infrastructure code — focus on the patched function itself and any
-helper it calls.
+understand the transform, then write generalized proofs.  Focus on the patched
+function itself and any helpers or declarations it directly calls — do not read
+unrelated infrastructure.
 
 If a proof times out or errors out, move on to the next candidate transform in
 the patch.  Do NOT retry the same proof.

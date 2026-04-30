@@ -6,7 +6,7 @@ const ENOSPC = 28
 
 export default tool({
   description:
-    "Run the baseline (unpatched) opt on LLVM IR text.  Returns exit code, stderr, and whether it crashed.  -S is always passed; do NOT add -S or -o flags to opt_args.",
+    "Run the baseline (unpatched) opt on LLVM IR text.  Returns exit code, signal, crashed, stdout, and stderr.  -S is always passed; do NOT add -S or -o flags to opt_args.",
   args: {
     ir: tool.schema
       .string()
