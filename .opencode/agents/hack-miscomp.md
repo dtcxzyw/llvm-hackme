@@ -324,37 +324,23 @@ have no poison implication.
 
 For `nnan`/`ninf`: does the fold turn a NaN/Inf result into a finite one, or vice versa?
 
-### 4. SCEV and Loop Analysis Traps
-
-- **`std::optional<bool>` coercion**: `if (checkCondition(...))` coerces `false` to `true`.
-  Must use `if (checkCondition(...).value_or(false))` or `checkCondition(...) == true`.
-- **Sign-extension vs zero-extension**: when SCEV replaces a stride constant from a `sext` input,
-  the constant must be sign-extended, not zero-extended.
-- **SCEV replacement scope**: SCEV-based operand simplification is only safe for live-in values,
-  never for reduction phis or loop-variant values.
-- **Decomposition overflow**: intermediate arithmetic during GEP/index decomposition may overflow;
-  overflowing coefficients invalidate the result.
-- **Predicated path poison**: before treating a load as safe to speculatively execute, check that
-  no address operand can be poison along the predicated path — a phi from the vector.body edge
-  may carry poison into the load.
-
-### 5. Overly Relaxed Preconditions
+### 4. Overly Relaxed Preconditions
 
 The patch may optimize a pattern previously guarded by a stricter condition.  Feed input that
 satisfies the new (looser) precondition but violates the old (correct) assumption.
 
-### 6. ConstantExpr
+### 5. ConstantExpr
 
 Does the patch match on `Constant` but neglect `ConstantExpr`?  A constant expression can appear
 where a plain constant is expected.
 
-### 7. Refinement / Replacement
+### 6. Refinement / Replacement
 
 If the patch replaces expression `A` with `B` based on `simplify(A) == simplify(B)`, check whether
 `simplify(B)` introduces poison/UB that `A` did not have.  Look for `replaceAllUsesWith` versus
 single-use optimizations: the replacement must be safe for **every** user, not just the current one.
 
-### 8. In-Place Modification
+### 7. In-Place Modification
 
 When the patch modifies an existing instruction in-place — via `setOperand()`, `mutateType()`,
 or any method that changes the instruction's semantics without creating a new `Instruction` —
