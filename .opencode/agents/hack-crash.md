@@ -9,6 +9,7 @@ permission:
   edit: deny
   todowrite: allow
   hack_alive2: deny
+  hack_submit_miscompilation: deny
   external_directory:
     "work/llvm-hackme/llvm-project/**": allow
     "work/llvm-hackme/llvm-project-pr/**": allow
@@ -52,7 +53,7 @@ are your **analysis phase**.  Output the annotation table, then move to step 5
 
 ## Context Fields
 
-Read `hack/context.json` first.  It contains these fields:
+`read` `hack/context.json` first.  It contains these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
 - `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
@@ -87,10 +88,17 @@ regression; submit and let the server decide.
 - **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
   add `-o -` or `-o /dev/stdout`.
 
-**`hack_submit_crash_crash(ir, opt_args, description)`** — submits a candidate crash
+**`hack_submit_crash(ir, opt_args, description)`** — submits a candidate crash
 reproducer for server-side verification.  The server checks that baseline does NOT
 crash while PR DOES crash.  Accepted → bug confirmed and reported.  Rejected →
 server returns the reason; fix and retry.
+
+**`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
+Takes a raw SMT-LIB2 string.  Returns JSON:
+```
+{sat, unsat, unknown, timeout, output}
+```
+Use `sat` to get a counterexample model from the `output` field.
 
 All hack tools accept IR as a **string** (the full LLVM IR text).  Do NOT
 pass file paths — write the IR text directly.  Tools create temp files internally

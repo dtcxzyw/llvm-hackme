@@ -8,6 +8,7 @@ permission:
   write: deny
   edit: deny
   todowrite: allow
+  hack_submit_crash: deny
   external_directory:
     "work/llvm-hackme/llvm-project/**": allow
     "work/llvm-hackme/llvm-project-pr/**": allow
@@ -59,7 +60,7 @@ the patch.  Do NOT retry the same proof.
 
 ## Context Fields
 
-Call `read` `hack/context.json` first.  It contains these fields:
+`read` `hack/context.json` first.  It contains these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
 - `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
@@ -118,7 +119,7 @@ regression checking.
 - **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
   add `-o -` or `-o /dev/stdout`.
 
-**`hack_submit_miscompilation_miscompilation(ir, opt_args, description, alive2_args?)`** — submits a
+**`hack_submit_miscompilation(ir, opt_args, description, alive2_args?)`** — submits a
 candidate miscompilation reproducer for server-side verification.  The IR must have
 been proven incorrect via `hack_alive2` before submission.  The server runs baseline
 and PR opt on the IR, then compares outputs with alive-tv.  If the PR output diverges
