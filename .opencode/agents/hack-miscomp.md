@@ -101,9 +101,8 @@ Takes a raw SMT-LIB2 string.  Returns JSON:
 ```
 Use `sat` to get a counterexample model from the `output` field.
 
-**`hack_pr_opt(ir, opt_args)`** — runs the PR `opt` on `ir`.
-`opt_args` is a space-separated string of opt flags, e.g. `-passes=instcombine<no-verify-fixpoint>`.
-Returns JSON:
+**`hack_pr_opt(ir, opt_args)`** / **`hack_baseline_opt(ir, opt_args)`** — run the PR or
+baseline `opt` on `ir`.  Returns JSON:
 ```
 {exit_code, signal, crashed, stdout, stderr}
 ```
@@ -111,13 +110,8 @@ Returns JSON:
 - `stdout`/`stderr` are truncated to the last 8000 characters.
 - **`-S` is always passed automatically** — stdout contains text IR.  Do NOT add
   `-S`, `-o -`, or `-o /dev/stdout` to `opt_args`; they are redundant.
-
-**`hack_baseline_opt(ir, opt_args)`** — same as above but uses baseline `opt`.
-You *may* use this to check whether the baseline already performs the same
-transform, but the server-side submit verification already performs baseline
-regression checking.
-- **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
-  add `-o -` or `-o /dev/stdout`.
+- `hack_baseline_opt` is useful for checking whether the baseline already performs
+  the same transform, but the server verifies this automatically at submit time.
 
 **`hack_submit_miscompilation(ir, opt_args, description, alive2_args?)`** — submits a
 candidate miscompilation reproducer for server-side verification.  The IR must have

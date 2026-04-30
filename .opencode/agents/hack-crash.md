@@ -70,9 +70,8 @@ read `hack/context.json` first.  It contains these fields:
 In addition to the standard tools (`read`, `grep`, `glob`), the following `hack_*`
 tools are available:
 
-**`hack_pr_opt(ir, opt_args)`** — runs the PR `opt` on `ir`.
-`opt_args` is a space-separated string of opt flags, e.g. `-passes=instcombine<no-verify-fixpoint>`.
-Returns JSON:
+**`hack_pr_opt(ir, opt_args)`** / **`hack_baseline_opt(ir, opt_args)`** — run the PR or
+baseline `opt` on `ir`.  Returns JSON:
 ```
 {exit_code, signal, crashed, stdout, stderr}
 ```
@@ -80,13 +79,8 @@ Returns JSON:
 - `stdout`/`stderr` are truncated to the last 8000 characters.
 - **`-S` is always passed automatically** — stdout contains text IR.  Do NOT add
   `-S`, `-o -`, or `-o /dev/stdout` to `opt_args`; they are redundant.
-
-**`hack_baseline_opt(ir, opt_args)`** — same as above but uses baseline `opt`.
-You *may* use this to sanity-check your IR, but the server-side submit verification
-already performs baseline regression checking.  Do not rely on it to confirm a
-regression; submit and let the server decide.
-- **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
-  add `-o -` or `-o /dev/stdout`.
+- `hack_baseline_opt` is useful for sanity-checking that the baseline does NOT
+  crash on your IR before submitting, but the server verifies this automatically.
 
 **`hack_submit_crash(ir, opt_args, description)`** — submits a candidate crash
 reproducer for server-side verification.  The server checks that baseline does NOT
