@@ -122,7 +122,7 @@ bug report.  Choose carefully.
 
 ### 1. Read the context
 
-read `hack/context.json`.
+read `hack/context.json` to get all paths and the hint.
 
 ### 2. Read the patch diff
 
