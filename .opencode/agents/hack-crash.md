@@ -148,16 +148,8 @@ For each distinct code path introduced or modified by the patch, fill in:
 | ...  | X->getType() == Y->getType() | assert (mismatched types) | not checked → WEAK |
 ```
 
-Cover every crash-relevant category.  If you skip a category, explain why.
-
-**Crash-relevant categories:**
-
-- **Explicit casts** (`cast<Instruction>(V)`, `cast<Constant>(V)`) — what guarantees the cast target?  Is the source guaranteed by a prior match, by operand canonicalization, or by a caller precondition?  If canonicalization runs first, verify it handles ALL cases (e.g., `m_c_Mul` vs non-swapped operand order).  For vector types, check `cast<FixedVectorType>(Ty)` — does the code path handle incoming scalable vectors (`<vscale x N x ty>`), or will it assert?
-- **Nullable casts** (`dyn_cast<Instruction>(V)`, `dyn_cast<T>(V)`) — is the null check actually reachable?  Look for dead-code guards that mask missing null checks.
-- **Bit-width / APInt** — `getZExtValue()`, `getLimitedValue()`, truncation, `sext`/`zext`.  Does the patch check that the value fits?  Look for hardcoded APInt widths that mismatch the actual type.  128-bit integers (`i128`) are a common source of asserts — many optimisations assume ≤64 bits.
-- **Pointer / operand dereferences** (`I->getOperand(0)`, `I->getParent()`) — is the pointer/index range validated?
-- **Dominance** — are new instructions inserted at a point where operands dominate?
-- **Flag / attribute violations** — instructions created or mutated in-place may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes (range, noundef, align) that trigger asserts.  See Crash Heuristics §6.
+Cover every category from **Crash Heuristics** below.  If a heuristic does not
+apply to this patch, note it and move on.
 
 When using `read`, **limit to one function at a time** — set `limit` to at most
 200 lines.  If you need to read two functions, make two separate calls.
@@ -192,26 +184,34 @@ each step complete as you finish it so you don't lose track in complex patches.
 
 ## Crash Heuristics
 
-1. **Assertions** — the patch may introduce a new `assert()` or rely on an implicit
-   assumption (null check, type check, bit-width constraint).  Find IR that violates
-   the assumption.
+1. **Assertions and unsafe casts** — the patch may introduce a new `assert()` or rely
+    on an implicit assumption (null check, type check, bit-width constraint).  Find IR
+    that violates the assumption.  Check every `cast<T>(V)`: what guarantees `V`
+    is-a `T`?  Is the guarantee from a prior `match()`, from canonicalization, or from
+    a caller precondition?  For `dyn_cast` / `isa`, verify the null path is actually
+    reachable — dead-code guards can mask missing null checks.  For vector types, check
+    `cast<FixedVectorType>(Ty)` — will it assert on scalable vectors?
 2. **Bit-width and type mismatches** — truncation, `sext`/`zext`, integer widths,
     vector lane counts.  Hardcoded APInt bit-widths that don't match the actual type
     (e.g., `APInt(32, ...)` on a 16-bit type) will assert-fail.  128-bit integers
     (`i128`) are a common source of bugs — many optimisations assume ≤64 bits and
     skip bounds checks or use `getZExtValue()` without checking the value fits in
     a 64-bit result.
-3. **Dominance violations** — creating an instruction at a position where its
-   operands are not dominated.
-4. **FixedVector vs ScalableVector** — mixing `<N x ty>` with `<vscale x N x ty>`.
-5. **Operator / intrinsic matching** — if an optimization pattern-matches on
-   multiple operators, check that their opcodes or intrinsic IDs match before folding.
-6. **Flag / attribute violations** — instructions created or mutated in-place
-   may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
-   (range, noundef, align) that trigger asserts when the flag contract is violated.
-7. **Poison assumptions** — if the patch assumes an operand is non-poison,
-   feed poison to trigger UB.  **Do NOT use `undef` in submitted IR** — the
-   server rejects any IR containing ` undef`.
+3. **Pointer / operand dereferences** — `I->getOperand(0)`, `I->getParent()`.
+    Is the pointer/index range validated before dereference?
+4. **Dominance violations** — creating an instruction at a position where its
+    operands are not dominated.
+5. **FixedVector vs ScalableVector** — mixing `<N x ty>` with `<vscale x N x ty>`.
+    `cast<FixedVectorType>(Ty)` is a common assert point when scalable vectors
+    reach code that assumes fixed-width.
+6. **Operator / intrinsic matching** — if an optimization pattern-matches on
+    multiple operators, check that their opcodes or intrinsic IDs match before folding.
+7. **Flag / attribute violations** — instructions created or mutated in-place
+    may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
+    (range, noundef, align) that trigger asserts when the flag contract is violated.
+8. **Poison assumptions** — if the patch assumes an operand is non-poison,
+    feed poison to trigger UB.  **Do NOT use `undef` in submitted IR** — the
+    server rejects any IR containing ` undef`.
 
 ## Tool Timeouts
 
