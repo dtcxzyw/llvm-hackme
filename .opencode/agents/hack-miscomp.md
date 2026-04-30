@@ -122,7 +122,7 @@ fix and retry.
 
 ## opt_args
 
-All opt/alive2 tools accept an `opt_args` parameter — a space-separated string
+`hack_pr_opt` and `hack_baseline_opt` accept an `opt_args` parameter — a space-separated string
 of arguments to pass to `opt`.  You control exactly what flags are used, e.g.:
 
 - `-passes=instcombine<no-verify-fixpoint>` — run instcombine only
