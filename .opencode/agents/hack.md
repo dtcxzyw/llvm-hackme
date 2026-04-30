@@ -67,6 +67,9 @@ Call `hack_context` first.  It returns a JSON object with these fields:
 
 ## Tool Reference
 
+In addition to the standard tools (`read`, `grep`, `glob`), the following `hack_*`
+tools are available for opt execution and bug verification.
+
 All hack tools accept IR as a **string** (the full LLVM IR text).  Do NOT
 pass file paths — write the IR text directly.  Tools create temp files internally
 and clean them up automatically.
@@ -135,11 +138,15 @@ Call `hack_context` to get all paths and the hint.
 
 ### 2. Annotate every changed code path with Hoare Logic — MUST output a table
 
-Read the patch diff.  **You MUST produce a visible annotation table before any
-other tool call.**  Use `read` to inspect only the changed functions (baseline and
-PR).  **Do NOT read LLVM infrastructure headers** (PatternMatch.h, InstrTypes.h,
-IRBuilder.h, etc.) — you are hunting for bugs in the patch, not auditing the
-framework.
+**First**, read the patch diff (`hack/patch.diff`) to identify every function modified
+by the patch.  **Then**, for each changed function, `read` the source file in both
+`llvm-project/` (baseline) and `llvm-project-pr/` (PR) at the relevant offsets.
+**Do NOT read source files before the patch diff** — the diff tells you what to read.
+
+**You MUST produce a visible annotation table before any `hack_pr_opt` /
+`hack_baseline_opt` / `hack_alive2` / `hack_submit` call.**  Use `read` to inspect
+the changed functions and any referenced declarations (headers, base classes,
+helper utilities) needed to understand preconditions and invariants.
 
 For each distinct code path introduced or modified by the patch, fill in this table:
 
