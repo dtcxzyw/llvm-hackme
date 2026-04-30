@@ -7,6 +7,7 @@ permission:
   webfetch: deny
   write: deny
   edit: deny
+  todowrite: allow
   external_directory:
     "work/llvm-hackme/llvm-project/**": allow
     "work/llvm-hackme/llvm-project-pr/**": allow

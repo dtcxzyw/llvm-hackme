@@ -428,18 +428,85 @@ class HackmeService:
         }
         config.hack_context_file.write_text(json.dumps(context))
 
-        submit_pipe = hack_dir / "submit.pipe"
-        response_pipe = hack_dir / "response.pipe"
+        opencode_bin = find_opencode()
+        if opencode_bin is None:
+            LOGGER.warning("opencode binary not found, skipping hack agent")
+            return None, []
+
+        crash_task = asyncio.create_task(
+            self._run_single_hack_agent(
+                opencode_bin,
+                "hack-crash",
+                update,
+                toolchain,
+                config.hack_crash_budget_seconds,
+                "crash",
+            ),
+            name="hack-crash",
+        )
+        miscomp_task = asyncio.create_task(
+            self._run_single_hack_agent(
+                opencode_bin,
+                "hack-miscomp",
+                update,
+                toolchain,
+                config.hack_miscomp_budget_seconds,
+                "miscomp",
+            ),
+            name="hack-miscomp",
+        )
+
+        LOGGER.info(
+            "Launching crash + miscomp hack agents for PR #%s", update.pr.number
+        )
+
+        all_submissions: list[dict] = []
+
+        done, pending = await asyncio.wait(
+            [crash_task, miscomp_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in done:
+            try:
+                reproducer, submissions = task.result()
+                all_submissions.extend(submissions)
+                if reproducer is not None:
+                    for p in pending:
+                        p.cancel()
+                    LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
+                    return reproducer, all_submissions
+            except Exception:
+                LOGGER.exception("Hack agent %s failed", task.get_name(), exc_info=True)
+
+        remaining = await asyncio.gather(*pending, return_exceptions=True)
+        for result in remaining:
+            if isinstance(result, tuple):
+                _, submissions = result
+                all_submissions.extend(submissions)
+            elif isinstance(result, Exception):
+                LOGGER.exception("Hack agent failed", exc_info=result)
+
+        return None, all_submissions
+
+    async def _run_single_hack_agent(
+        self,
+        opencode_bin: Path,
+        agent_name: str,
+        update: PullRequestUpdate,
+        toolchain: ToolchainPaths,
+        budget_seconds: int,
+        suffix: str,
+    ) -> tuple[Reproducer | None, list[dict]]:
+        config = self._config
+        hack_dir = config.hack_work_dir
+
+        submit_pipe = hack_dir / f"submit-{suffix}.pipe"
+        response_pipe = hack_dir / f"response-{suffix}.pipe"
 
         for p in (submit_pipe, response_pipe):
             p.unlink(missing_ok=True)
             os.mkfifo(str(p))
-
-        opencode_bin = find_opencode()
-        if opencode_bin is None:
-            LOGGER.warning("opencode binary not found, skipping hack agent")
-            self._cleanup_pipes(submit_pipe, response_pipe)
-            return None, []
 
         hack_prompt = (
             "You are the hack agent.  Use the `hack_context` tool first to get "
@@ -449,13 +516,12 @@ class HackmeService:
             "Work quickly and submit as soon as you have a credible candidate."
         )
 
-        LOGGER.info("Launching hack agent for PR #%s", update.pr.number)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        log_name = f"opencode-pr{update.pr.number}-{ts}.log"
+        log_name = f"opencode-pr{update.pr.number}-{suffix}-{ts}.log"
         logs_dir = config.logs_dir
         logs_dir.mkdir(parents=True, exist_ok=True)
         opencode_log_path = logs_dir / log_name
-        opencode_log = open(  # noqa: ASYNC230,SIM115 — fd for subprocess
+        opencode_log = open(  # noqa: ASYNC230,SIM115
             str(opencode_log_path), "w"
         )
         try:
@@ -463,7 +529,7 @@ class HackmeService:
                 str(opencode_bin),
                 "run",
                 "--agent",
-                "hack",
+                agent_name,
                 "--model",
                 config.hack_model,
                 "--format",
@@ -546,10 +612,12 @@ class HackmeService:
         try:
             await asyncio.wait_for(
                 proc.wait(),
-                timeout=config.hack_budget_seconds,
+                timeout=budget_seconds,
             )
         except asyncio.TimeoutError:
-            LOGGER.info("Hack agent timed out for PR #%s", update.pr.number)
+            LOGGER.info(
+                "Hack agent %s timed out for PR #%s", agent_name, update.pr.number
+            )
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             await proc.wait()
@@ -576,8 +644,6 @@ class HackmeService:
             opencode_log.close()
 
         result = result_holder.get("reproducer")
-        if result is not None:
-            LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
         _render_recent_log(opencode_log_path, result, submissions)
         return result, submissions
 

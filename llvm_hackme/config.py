@@ -40,7 +40,8 @@ class Config:
     debounce_seconds: int
     baseline_update_interval_seconds: int
     fuzz_budget_seconds: int
-    hack_budget_seconds: int
+    hack_crash_budget_seconds: int
+    hack_miscomp_budget_seconds: int
     hack_model: str
     max_patch_chars: int
     max_review_retries: int
@@ -119,7 +120,12 @@ class Config:
                 "LLVM_HACKME_BASELINE_UPDATE_INTERVAL_SECONDS", 3600
             ),
             fuzz_budget_seconds=_int_env("LLVM_HACKME_FUZZ_BUDGET_SECONDS", 600),
-            hack_budget_seconds=_int_env("LLVM_HACKME_HACK_BUDGET_SECONDS", 1200),
+            hack_crash_budget_seconds=_int_env(
+                "LLVM_HACKME_HACK_CRASH_BUDGET_SECONDS", 600
+            ),
+            hack_miscomp_budget_seconds=_int_env(
+                "LLVM_HACKME_HACK_MISCOMP_BUDGET_SECONDS", 600
+            ),
             hack_model=_required_env("LLVM_HACKME_HACK_MODEL"),
             max_patch_chars=_int_env("LLVM_HACKME_MAX_PATCH_CHARS", 200_000),
             max_review_retries=_int_env("LLVM_HACKME_MAX_REVIEW_RETRIES", 2),
