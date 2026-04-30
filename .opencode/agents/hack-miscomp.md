@@ -246,11 +246,10 @@ If the server rejects your submission, read the rejection reason carefully:
   the refined reproducer must hardcode the counterexample values so the fold fires
   on both baseline and PR opt.
 
-**IPO / multi-function**: `hack_submit_miscompilation` accepts multi-function IR and works across
-function boundaries — useful for inter-procedural optimizations (inlining,
-function-attrs, arg-promotion).  `hack_alive2` also supports multi-function proofs
-via matching `@src_foo` / `@tgt_foo` suffixes, but does **not** handle IPO — each
-`@src_N` / `@tgt_N` pair is checked independently.  For IPO bugs, use `hack_submit_miscompilation`.
+**IPO / multi-function**: `hack_submit_miscompilation` accepts a **single function
+definition** (with optionally `declare`-d external functions).  `hack_alive2`
+supports multi-function proofs via matching `@src_foo` / `@tgt_foo` suffixes,
+but does **not** handle IPO — each `@src_N` / `@tgt_N` pair is checked independently.
 
 **Loop proofs**: alive2 supports `-src-unroll=N` and `-tgt-unroll=N` to unroll
 loops in source and target functions.  The IR trip count must be small enough for
@@ -396,7 +395,7 @@ feature.
 
 When you call `hack_submit_miscompilation`, the server performs:
 
-The `ir` may contain one or more functions.  The server **does NOT** look for
+The `ir` must contain exactly one function definition.  The server **does NOT** look for
 `@src`/`@tgt` naming — it runs opt and compares the output to the input.
 
 1. Server runs `baseline_opt opt_args ir.ll -S` → `baseline_out.ll`.
