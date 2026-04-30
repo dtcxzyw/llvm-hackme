@@ -260,6 +260,11 @@ When hunting miscompilations, follow the workflow described in
   the refined reproducer must hardcode the counterexample values so the fold fires
   on both baseline and PR opt.
 
+**Bit-width tip for miscompilation proofs:** Prefer smaller types to reduce alive2's
+search space and avoid timeouts.  Use `i8` instead of `i32`, `half` instead of
+`float`, and so on.  Smaller bit-widths are especially helpful when the fold involves
+arithmetic (ADD, MUL, SDIV) where the state space grows combinatorially.
+
 **Performance tip for pointer proofs:**  To avoid alive2 timeouts on proofs involving
 pointers, reduce the pointer width by specifying a custom data layout:
 ```llvm
