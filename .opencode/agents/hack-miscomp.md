@@ -41,7 +41,7 @@ the patch.  Do NOT retry the same proof.
 ## Exit Rules
 
 - If `hack_alive2` reports a miscompilation → refine the counterexample and
-  submit via `hack_submit` immediately.
+  submit via `hack_submit_miscompilation` immediately.
 - If all proofs come back correct (or timeout/error) and the patch looks sound →
   **stop**.  State that no regression was found and exit.  Do NOT keep iterating
   just to use up the time budget.
@@ -118,10 +118,12 @@ regression checking.
 - **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
   add `-o -` or `-o /dev/stdout`.
 
-**`hack_submit(ir, opt_args, kind, description, alive2_args?)`** — submits a candidate
-reproducer for server-side verification.  The server runs baseline and PR opt on the
-IR, then compares outputs with alive-tv.  If the PR output diverges from baseline,
-the submission is accepted.  Rejected → server returns the reason; fix and retry.
+**`hack_submit_miscompilation_miscompilation(ir, opt_args, description, alive2_args?)`** — submits a
+candidate miscompilation reproducer for server-side verification.  The IR must have
+been proven incorrect via `hack_alive2` before submission.  The server runs baseline
+and PR opt on the IR, then compares outputs with alive-tv.  If the PR output diverges
+from baseline, the submission is accepted.  Rejected → server returns the reason;
+fix and retry.
 
 ## opt_args
 
@@ -140,7 +142,7 @@ loops that cause false positives.
 
 The `suggested_opt_args` field in the context is a starting hint.  You are free
 to use different or additional flags.  Whatever `opt_args` you pass to
-`hack_submit` is what will be used for server-side verification AND the final
+`hack_submit_miscompilation` is what will be used for server-side verification AND the final
 bug report.  Choose carefully.
 
 ## Workflow
@@ -229,7 +231,7 @@ define i1 @f(i8 %x) {
 
 ### 7. Submit immediately
 
-Call `hack_submit(ir, opt_args, kind="miscompilation", description, alive2_args?)`.
+Call `hack_submit_miscompilation(ir, opt_args, description, alive2_args?)`.
 If the server rejects your submission, read the rejection reason carefully:
 
 - **"baseline also miscompiles"** — the bug is pre-existing, not a regression.
@@ -247,16 +249,16 @@ If the server rejects your submission, read the rejection reason carefully:
   the refined reproducer must hardcode the counterexample values so the fold fires
   on both baseline and PR opt.
 
-**IPO / multi-function**: `hack_submit` accepts multi-function IR and works across
+**IPO / multi-function**: `hack_submit_miscompilation` accepts multi-function IR and works across
 function boundaries — useful for inter-procedural optimizations (inlining,
 function-attrs, arg-promotion).  `hack_alive2` also supports multi-function proofs
 via matching `@src_foo` / `@tgt_foo` suffixes, but does **not** handle IPO — each
-`@src_N` / `@tgt_N` pair is checked independently.  For IPO bugs, use `hack_submit`.
+`@src_N` / `@tgt_N` pair is checked independently.  For IPO bugs, use `hack_submit_miscompilation`.
 
 **Loop proofs**: alive2 supports `-src-unroll=N` and `-tgt-unroll=N` to unroll
 loops in source and target functions.  The IR trip count must be small enough for
 the unroll to be feasible.  Maximum unroll depth is 128.  Pass these via
-`alive2_args` in both `hack_alive2` and `hack_submit`:
+`alive2_args` in both `hack_alive2` and `hack_submit_miscompilation`:
 ```
 alive2_args: "-src-unroll=4 -tgt-unroll=4"
 ```
@@ -392,7 +394,7 @@ feature.
 
 ## Verification Flow (server-side)
 
-When you call `hack_submit(kind="miscompilation")`, the server performs:
+When you call `hack_submit_miscompilation`, the server performs:
 
 The `ir` may contain one or more functions.  The server **does NOT** look for
 `@src`/`@tgt` naming — it runs opt and compares the output to the input.
@@ -411,20 +413,19 @@ transforms (incorrectly) but the baseline opt handles correctly (or does not
 transform at all).  The two opt outputs diverge → alive2 catches it.
 
 **Contrast with `hack_alive2`**: `hack_alive2(ir)` takes `@src`/`@tgt` and feeds
-them directly to alive-tv with no opt step.  `hack_submit` with `kind: miscompilation`
+them directly to alive-tv with no opt step.  `hack_submit_miscompilation`
 takes a single function, runs both opts, and compares the outputs.  The two tools
 serve different stages:
 - `hack_alive2` — generalized proof (does the transform hold for all inputs?)
-- `hack_submit` — concrete reproducer (does the buggy opt actually produce wrong output?)
+- `hack_submit_miscompilation` — concrete reproducer (does the buggy opt actually produce wrong output?)
 
 ## Submission Format
 
-`hack_submit` accepts:
+`hack_submit_miscompilation` accepts:
 
 ```
 ir          — full LLVM IR text of the reproducer, not a file path
 opt_args    — opt pipeline string, e.g. "-passes=instcombine<no-verify-fixpoint>"
-kind        — "miscompilation"
 description — one-line summary of the bug, e.g. "InstCombine folds
               icmp ult (shl X, C), 0 to true, but shl wraps without nsw"
 alive2_args — optional extra alive-tv flags, e.g. "-src-unroll=4 -tgt-unroll=4"
@@ -467,7 +468,6 @@ define i32 @f(i32 %x) {
 }
 
 opt_args: -passes=instcombine<no-verify-fixpoint>
-kind: miscompilation
 description: InstCombine folds icmp ult (shl X, C), 0 to true, but shl wraps without nsw
 ```
 

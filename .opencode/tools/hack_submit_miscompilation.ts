@@ -5,7 +5,7 @@ const MAX_IR_BYTES = 10 * 1024 * 1024
 
 export default tool({
   description:
-    "Submit a candidate reproducer to the Python service for verification.  If the bug is confirmed, the process exits.  Otherwise returns the verification failure reason so you can retry.",
+    "Submit a miscompilation reproducer to the Python service for verification.  The IR must have been proven incorrect via hack_alive2 before submission.  If confirmed, the process exits.  Otherwise returns the verification failure reason so you can retry.",
   args: {
     ir: tool.schema
       .string()
@@ -13,9 +13,6 @@ export default tool({
     opt_args: tool.schema
       .string()
       .describe("Space-separated opt arguments that trigger the bug, e.g. '-passes=instcombine<no-verify-fixpoint>'"),
-    kind: tool.schema
-      .string()
-      .describe('Bug kind: "crash" or "miscompilation"'),
     description: tool.schema
       .string()
       .describe("One-line description of the bug"),
@@ -38,7 +35,7 @@ export default tool({
     const payload = JSON.stringify({
       ir: args.ir,
       opt_args: args.opt_args,
-      kind: args.kind,
+      kind: "miscompilation",
       description: args.description,
       alive2_args: args.alive2_args || "",
     })
@@ -57,7 +54,7 @@ export default tool({
 
       const resp = JSON.parse(raw)
       if (resp.success) {
-        return "Bug confirmed and reported.  Exiting."
+        return "Miscompilation confirmed and reported.  Exiting."
       }
       return `Verification failed: ${resp.reason || "unknown reason"}.  You may retry.`
     } catch (e: any) {

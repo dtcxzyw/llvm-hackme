@@ -8,6 +8,7 @@ permission:
   write: deny
   edit: deny
   todowrite: allow
+  hack_alive2: deny
   external_directory:
     "work/llvm-hackme/llvm-project/**": allow
     "work/llvm-hackme/llvm-project-pr/**": allow
@@ -86,7 +87,7 @@ regression; submit and let the server decide.
 - **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
   add `-o -` or `-o /dev/stdout`.
 
-**`hack_submit(ir, opt_args, kind, description, alive2_args?)`** — submits a candidate
+**`hack_submit_crash_crash(ir, opt_args, description)`** — submits a candidate crash
 reproducer for server-side verification.  The server checks that baseline does NOT
 crash while PR DOES crash.  Accepted → bug confirmed and reported.  Rejected →
 server returns the reason; fix and retry.
@@ -112,7 +113,7 @@ loops that cause false positives.
 
 The `suggested_opt_args` field in the context is a starting hint.  You are free
 to use different or additional flags.  Whatever `opt_args` you pass to
-`hack_submit` is what will be used for server-side verification AND the final
+`hack_submit_crash` is what will be used for server-side verification AND the final
 bug report.  Choose carefully.
 
 ## Workflow
@@ -175,7 +176,7 @@ of annotation.  If you have WEAK rows, build IR for them now.
 
 ### 6. Submit immediately
 
-Call `hack_submit(ir, opt_args, kind="crash", description)`.  If the server
+Call `hack_submit_crash(ir, opt_args, description)`.  If the server
 rejects your submission, read the rejection reason carefully:
 
 - **"baseline also crashes"** — the bug is pre-existing, not a regression.
@@ -213,7 +214,7 @@ All tool invocations have internal timeouts.  If a tool times out or returns an 
 
 ## Verification Flow (server-side)
 
-When you call `hack_submit(kind="crash")`, the server performs:
+When you call `hack_submit_crash(ir, opt_args, description)`, the server performs:
 
 1. Server runs `baseline_opt opt_args ir.ll`.  If it crashes too, the bug is
    pre-existing → rejected: **"baseline also crashes"**.
@@ -223,12 +224,11 @@ When you call `hack_submit(kind="crash")`, the server performs:
 
 ## Submission Format
 
-`hack_submit` accepts:
+`hack_submit_crash` accepts:
 
 ```
 ir          — full LLVM IR text of the reproducer, not a file path
 opt_args    — opt pipeline string, e.g. "-passes=instcombine<no-verify-fixpoint>"
-kind        — "crash"
 description — one-line summary of the bug, e.g. "InstCombine asserts on
               sext of i16 to i32 in foldSelectICmpMinMax"
 ```
@@ -269,7 +269,6 @@ body:
 }
 
 opt_args: -passes=instcombine<no-verify-fixpoint>
-kind: crash
 description: InstCombine crashes on phi node with non-dominating incoming value
 ```
 
