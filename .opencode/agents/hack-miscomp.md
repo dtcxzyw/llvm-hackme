@@ -206,10 +206,15 @@ Interpret results:
 
 ### 6. Refine the counterexample into a concrete reproducer
 
-Replace the generic parameters (e.g., `%C`) with the **specific constants** from
-the counterexample, remove `@llvm.assume` calls, and inline the preconditions so
-the fold actually fires.  Keep only the `@src` function — do NOT include `@tgt`.
-The server generates the target by running baseline and PR opt, then compares them.
+The generalized proof used generic parameters and `@llvm.assume` preconditions.
+The counterexample from `hack_alive2` gives you **specific values** that violate
+the transform.  Replace the generic parameters with those concrete values, remove
+the `@llvm.assume` calls, and inline the preconditions so the fold actually fires
+on both baseline and PR opt — resulting in divergent outputs that the server
+can detect.
+
+Keep only the `@src` function — do NOT include `@tgt`.  The server runs baseline
+and PR opt on your IR, then compares the outputs with alive-tv.
 
 ```llvm
 ; After refinement: %C replaced with counterexample constant -1,
