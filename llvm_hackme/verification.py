@@ -301,6 +301,10 @@ async def _verify_regression_crash(
     if reject:
         LOGGER.warning(reject)
         return None, reject
+    # We intentionally allow 'undef' in crash IR — undef values can
+    # trigger UB paths that lead to legitimate crashes.  This is
+    # different from miscompilation verification, where 'undef' would
+    # poison the Alive2 comparison.
 
     baseline_crash = await check_crash(
         toolchain.baseline_opt,

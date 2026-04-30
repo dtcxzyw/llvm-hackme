@@ -135,6 +135,8 @@ Each PR gets at most one llvm-hackme comment. Two layers enforce this:
 | `comment_url` | URL of the posted comment |
 | `reproducer_json` | Serialized `Reproducer` (only when a bug was found) |
 | `processed_at` | UTC timestamp when processing fully completed |
+| `retry_count` | Number of consecutive transient failures (default 0) |
+| `pending_until` | UTC timestamp — scanner skips PR until this time if set |
 | `updated_at` | Last update timestamp |
 
 **Scanner logic on each cycle:**
@@ -154,7 +156,7 @@ All CMake builds use `RelWithDebInfo` (not `Release`) so opt crash stacktraces i
 
 `_build_lock` (an `asyncio.Lock`) protects the LLVM baseline git repository from concurrent mutation. It is acquired during:
 
-- **PR git operations**: `prepare_pr_worktree()` which calls `_sync_pr_worktree()` and `_apply_patch()`. PR builds (`build_pr_opt()` → `_configure_and_build_pr_opt()`) run **outside** the lock, allowing PR compilation to proceed in parallel with baseline updates.
+- **PR operations**: The lock is held across `prepare_pr_worktree`, `build_pr_opt`, fuzzing, and the hack agent in `_handle_pr_update()`. This prevents baseline updates (which rebuild the toolchain) from running concurrently with any PR processing that uses the toolchain.
 - **Baseline git operations**: `sync_baseline_sources()` (git fetch + checkout) runs under the lock. `build_baseline_toolchain()` (cmake + ninja for baseline opt, alive2, fuzz tools) runs **outside** the lock. If the baseline build fails, `rollback_sources()` re-acquires the lock to restore the previous git revisions, then `build_baseline_toolchain()` is called again to rebuild the old version.
 
 Build parallelism is controlled by `LLVM_HACKME_BUILD_JOBS` (default: 32). All `cmake --build` invocations use this value for `-j`.
@@ -175,7 +177,7 @@ The legacy pass manager syntax `instcombine` (bare, without `<no-verify-fixpoint
 
 ## Hack Agent
 
-When mutation-based fuzzing finds no bug (or is skipped for source-only patches), a lightweight LLM agent runs. The agent is defined in `.opencode/agents/hack.md` and invoked via `opencode run --agent hack --model <model>` in headless mode. Both stdout and stderr are merged into `hack_dir/opencode.log` for post-run auditing.
+When mutation-based fuzzing finds no bug (or is skipped for source-only patches), two lightweight LLM agents run in parallel. The agents are defined in `.opencode/agents/hack-crash.md` and `.opencode/agents/hack-miscomp.md`, invoked via `opencode run --agent hack-crash` and `--agent hack-miscomp` in headless mode. Both agents run concurrently with `asyncio.wait(FIRST_COMPLETED)` — the first agent to find a bug stops the other. Agent output is logged to `logs_dir/opencode-pr{number}-{suffix}-{ts}.log` (JSON) and rendered to `.txt` for post-run auditing.
 
 The model is set via the required `LLVM_HACKME_HACK_MODEL` environment variable in `provider/model` format (e.g. `deepseek/deepseek-v4-pro`). At startup the service validates the model is present in `opencode models` output and that `z3` is on `PATH`.
 
@@ -228,7 +230,7 @@ This guarantees the service does not hang permanently regardless of how the hack
   - **Output truncation** — stdout/stderr are truncated to the last 8 000 bytes for opt/alive2 and 12 000 bytes for z3.
 - `hack_submit` enforces a 10 MB IR payload limit; larger submissions are rejected.
 - z3 is invoked with memory (4 GB) and time (30 s) limits via its own `-memory:` and `-T:` flags.
-- The Python service enforces the overall hack time budget (`LLVM_HACKME_HACK_BUDGET_SECONDS`, default 1200 s).
+- The hack budgets are set per agent type: crash agents use `LLVM_HACKME_HACK_CRASH_BUDGET_SECONDS` (default 600 s), miscompilation agents use `LLVM_HACKME_HACK_MISCOMP_BUDGET_SECONDS` (default 600 s). Each budget is enforced as a `wait_for` timeout on the respective opencode process.
 - Server-side verification (`_hack_verify`) also applies `memory_limit_bytes` when running `check_crash` / `check_miscompilation`.
 
 ## IR Reproducer
@@ -252,8 +254,8 @@ The TUI reads these attributes via `self._service` on each `_refresh_ui` tick (e
 
 ## LLM Review
 
-Before any build or execution, the patch is split into chunks and each chunk is sent to an OpenAI-compatible API with a strict prompt that classifies it as `innocuous` or `malicious`. If any chunk is classified as non-innocuous, the PR is skipped entirely.
+Before any build or execution, the entire patch is sent as a single prompt to an OpenAI-compatible API that classifies it as `innocuous` or `malicious`. If classified as non-innocuous, the PR is skipped entirely.
 
 This gate runs as the very first step in `_handle_pr_update()`, before the build lock is acquired.
 
-The response parser (`_review_chunk`) uses fuzzy word matching: it tokenizes the first line of the LLM response (stripping punctuation) and checks if `"innocuous"` appears as a standalone word. This handles common LLM deviations like `"innocuous."`, `"The patch is innocuous"`, or `"**Innocuous**"` without requiring exact string equality. Any response that does not contain the word `innocuous` in its first line is treated as a rejection.
+The response parser in `_review_single()` uses fuzzy word matching: it tokenizes the first line of the LLM response (stripping punctuation) and checks if `"innocuous"` appears as a standalone word. This handles common LLM deviations like `"innocuous."`, `"The patch is innocuous"`, or `"**Innocuous**"` without requiring exact string equality. Any response that does not contain the word `innocuous` in its first line is treated as a rejection.
