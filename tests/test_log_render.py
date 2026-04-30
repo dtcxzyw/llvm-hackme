@@ -64,7 +64,7 @@ def test_renders_tool_use(tmp_path: Path) -> None:
                 "sessionID": "ses_abc",
                 "part": {
                     "type": "tool",
-                    "tool": "hack_context",
+                    "tool": "hack_baseline_opt",
                     "state": {
                         "status": "completed",
                         "input": {},
@@ -77,7 +77,7 @@ def test_renders_tool_use(tmp_path: Path) -> None:
     txt_log = render_opencode_log(json_log)
     content = txt_log.read_text()
     assert "[TOOL]" in content
-    assert "hack_context" in content
+    assert "hack_baseline_opt" in content
     assert "instcombine" in content
 
 

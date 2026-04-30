@@ -189,7 +189,7 @@ Python (service.py)                   opencode (hack agent)
 write context.json
 os.mkfifo(submit.pipe)
 os.mkfifo(response.pipe)
-                                       hack_context tool reads context.json
+                                        agent reads context.json
                                        LLM analyzes patch & constructs IR
                                         hack_submit(ir, opt_args, kind, desc)
                                           │
@@ -203,7 +203,7 @@ _hack_verify(payload)                    open(response.pipe) blocks
                                read(response.pipe) → return reason to LLM → retry
 ```
 
-1. **Context file** (`context.json`) — written by the service; contains all binary paths, the patch file path, pass name, work directories, LLVM source tree paths, and `opt_memory_limit_bytes` (for the TS-side `prlimit` wrapper). The `hack_context` tool reads it.
+1. **Context file** (`context.json`) — written by the service; contains all binary paths, the patch file path, pass name, work directories, LLVM source tree paths, and `opt_memory_limit_bytes` (for the TS-side `prlimit` wrapper). The agent reads it via the `read` tool.
 2.  **Submit pipe** (`submit.pipe`) — agent writes a JSON payload `{ir, opt_args, kind, description}`. The Python service reads it and runs verification (`check_crash` / `check_miscompilation` on both baseline and PR opt).
 3. **Response pipe** (`response.pipe`) — Python writes `{success: true}` on confirmed regression (then kills opencode) or `{success: false, reason}` on failed verification (agent may retry).
 
