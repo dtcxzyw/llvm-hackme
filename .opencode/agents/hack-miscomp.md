@@ -9,6 +9,7 @@ permission:
   edit: deny
   todowrite: allow
   hack_submit_crash: deny
+  hack_submit_miscompilation: allow
   external_directory:
     "work/llvm-hackme/llvm-project/**": allow
     "work/llvm-hackme/llvm-project-pr/**": allow
@@ -84,10 +85,10 @@ All hack tools accept IR as a **string** (the full LLVM IR text).  Do NOT
 pass file paths — write the IR text directly.  Tools create temp files internally
 and clean them up automatically.
 
-**`hack_alive2(ir, alive2_args?)`** — checks an `@src` / `@tgt` proof pair with alive2.
+**`hack_alive2(ir, alive2_args)`** — checks an `@src` / `@tgt` proof pair with alive2.
 The IR must define both `@src` and `@tgt` functions with identical signatures.
-alive2 compares them directly (no opt pass runs).  `alive2_args` is an optional
-string of extra alive-tv flags, e.g. `-src-unroll=4 -tgt-unroll=4` (max unroll 128).
+alive2 compares them directly (no opt pass runs).  **`alive2_args` is optional**;
+when provided, it should contain extra alive-tv flags, e.g. `-src-unroll=4 -tgt-unroll=4` (max unroll 128).
 Returns JSON:
 ```
 {exit_code, correct, miscompile, counterexample}
@@ -444,7 +445,9 @@ for the report; do NOT include a `RUN:` line in your submission.
   the ultimate arbiter.  If rejected, the response will tell you why; fix it and
   retry.
 - **No `undef`.**  Never use `undef` as an operand value.  ` undef` anywhere in
-  the IR will be rejected by the server.
+  the IR will be rejected by the server.  (The leading space before `undef`
+  ensures only the `undef` value token is matched, not names like `%undef_var`
+  that happen to contain "undef" as a substring.)
 
 ## Example
 

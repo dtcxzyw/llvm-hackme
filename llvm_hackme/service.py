@@ -508,13 +508,23 @@ class HackmeService:
             p.unlink(missing_ok=True)
             os.mkfifo(str(p))
 
-        hack_prompt = (
-            "You are the hack agent.  Use the `hack_context` tool first to get "
-            "all paths and configuration, then analyze the patch diff file to find "
-            "a crash or miscompilation regression.  When you find one, call "
-            "`hack_submit` with the IR, opt_args, kind, and description.  "
-            "Work quickly and submit as soon as you have a credible candidate."
-        )
+        if agent_name == "hack-crash":
+            hack_prompt = (
+                "You are the crash hack agent.  Read `hack/context.json` first to "
+                "get all paths and configuration, then analyze the patch diff file "
+                "to find a crash regression.  When you find one, call "
+                "`hack_submit_crash` with the IR, opt_args, and description.  "
+                "Work quickly and submit as soon as you have a credible candidate."
+            )
+        else:
+            hack_prompt = (
+                "You are the miscompilation hack agent.  Read `hack/context.json` "
+                "first to get all paths and configuration, then analyze the patch "
+                "diff file to find a miscompilation regression.  When you find one, "
+                "call `hack_submit_miscompilation` with the IR, opt_args, "
+                "description, and optional alive2_args.  "
+                "Work quickly and submit as soon as you have a credible candidate."
+            )
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         log_name = f"opencode-pr{update.pr.number}-{suffix}-{ts}.log"
