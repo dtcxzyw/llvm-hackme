@@ -210,8 +210,7 @@ each step complete as you finish it so you don't lose track in complex patches.
     may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
     (range, noundef, align) that trigger asserts when the flag contract is violated.
 8. **Poison assumptions** — if the patch assumes an operand is non-poison,
-    feed poison to trigger UB.  **Do NOT use `undef` in submitted IR** — the
-    server rejects any IR containing ` undef`.
+    feed poison to trigger UB.
 
 ## Tool Timeouts
 
@@ -258,8 +257,6 @@ for the report; do NOT include a `RUN:` line in your submission.
 - **Submit early.**  Don't over-polish the IR — the server-side verification is
   the ultimate arbiter.  If rejected, the response will tell you why; fix it and
   retry.
-- **No `undef`.**  Never use `undef` as an operand value.  ` undef` anywhere in
-  the IR will be rejected by the server.
 
 ## Example
 

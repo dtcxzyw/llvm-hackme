@@ -302,11 +302,6 @@ async def _verify_regression_crash(
         LOGGER.warning(reject)
         return None, reject
 
-    reject = _validate_ir_no_undef(ir_content)
-    if reject:
-        LOGGER.warning(reject)
-        return None, reject
-
     baseline_crash = await check_crash(
         toolchain.baseline_opt,
         ir_content,

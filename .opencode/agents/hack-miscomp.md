@@ -382,10 +382,6 @@ alive2 cannot analyze all IR.  It will error on:
 
 Note: `@llvm.assume` and `@llvm.ctpop` **are** supported by alive2 and should be
 used to express preconditions in generalized proofs.
-For pointer-heavy proofs, use a reduced pointer width to avoid timeouts:
-```llvm
-target datalayout = "p:8:8:8"
-```
 
 If alive2 errors out, the result is NOT a confirmed miscompilation.  Fall back to
 checking for crashes with `hack_pr_opt`, or simplify the IR to avoid the unsupported
