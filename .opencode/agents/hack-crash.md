@@ -70,6 +70,13 @@ read `hack/context.json` first.  It contains these fields:
 In addition to the standard tools (`read`, `grep`, `glob`), the following `hack_*`
 tools are available:
 
+**`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
+Takes a raw SMT-LIB2 string.  Returns JSON:
+```
+{sat, unsat, unknown, timeout, output}
+```
+Use `sat` to get a counterexample model from the `output` field.
+
 **`hack_pr_opt(ir, opt_args)`** / **`hack_baseline_opt(ir, opt_args)`** — run the PR or
 baseline `opt` on `ir`.  Returns JSON:
 ```
@@ -86,13 +93,6 @@ baseline `opt` on `ir`.  Returns JSON:
 reproducer for server-side verification.  The server checks that baseline does NOT
 crash while PR DOES crash.  Accepted → bug confirmed and reported.  Rejected →
 server returns the reason; fix and retry.
-
-**`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
-Takes a raw SMT-LIB2 string.  Returns JSON:
-```
-{sat, unsat, unknown, timeout, output}
-```
-Use `sat` to get a counterexample model from the `output` field.
 
 All hack tools accept IR as a **string** (the full LLVM IR text).  Do NOT
 pass file paths — write the IR text directly.  Tools create temp files internally
