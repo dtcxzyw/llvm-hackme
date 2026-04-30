@@ -79,11 +79,16 @@ Returns JSON:
 ```
 - `crashed: true` means `exit_code != 0` (crash, assertion failure, or OOM kill).
 - `stdout`/`stderr` are truncated to the last 8000 characters.
+- **Always include `-S`** in `opt_args` to get text IR in stdout.  Without `-S`, opt emits
+  bitcode which appears empty in the captured output.  Do **NOT** add `-o -` or
+  `-o /dev/stdout` — the tool captures stdout automatically and these flags are redundant.
 
 **`hack_baseline_opt(ir, opt_args)`** — same as above but uses baseline `opt`.
 You *may* use this to sanity-check your IR, but the server-side submit verification
 already performs baseline regression checking.  Do not rely on it to confirm a
 regression; submit and let the server decide.
+- **Always include `-S`.**  Same rule as `hack_pr_opt` — do NOT add `-o -` or
+  `-o /dev/stdout`.
 
 **`hack_alive2(ir, alive2_args?)`** — checks an `@src` / `@tgt` proof pair with alive2.
 The IR must define both `@src` and `@tgt` functions.  alive2 compares them directly

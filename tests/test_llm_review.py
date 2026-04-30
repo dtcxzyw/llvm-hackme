@@ -22,6 +22,7 @@ def reviewer() -> OpenAIPatchReviewer:
             state_db=MagicMock(),
             scan_interval_seconds=60,
             scan_overlap_seconds=300,
+            scan_iteration_timeout_seconds=300,
             debounce_seconds=300,
             baseline_update_interval_seconds=3600,
             fuzz_budget_seconds=600,

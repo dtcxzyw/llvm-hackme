@@ -98,7 +98,17 @@ class HackmeService:
     async def _scan_loop(self) -> None:
         while True:
             try:
-                await self._scan_once()
+                await asyncio.wait_for(
+                    self._scan_once(),
+                    timeout=self._config.scan_iteration_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                LOGGER.error(
+                    "Scan iteration timed out after %s seconds, "
+                    "resetting GitHub client",
+                    self._config.scan_iteration_timeout_seconds,
+                )
+                await self._github.reset_client()
             except Exception:
                 LOGGER.exception("Scan loop iteration failed")
             await asyncio.sleep(self._config.scan_interval_seconds)

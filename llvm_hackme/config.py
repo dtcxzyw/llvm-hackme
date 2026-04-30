@@ -36,6 +36,7 @@ class Config:
     state_db: Path
     scan_interval_seconds: int
     scan_overlap_seconds: int
+    scan_iteration_timeout_seconds: int
     debounce_seconds: int
     baseline_update_interval_seconds: int
     fuzz_budget_seconds: int
@@ -110,6 +111,9 @@ class Config:
             ),
             scan_interval_seconds=_int_env("LLVM_HACKME_SCAN_INTERVAL_SECONDS", 60),
             scan_overlap_seconds=_int_env("LLVM_HACKME_SCAN_OVERLAP_SECONDS", 300),
+            scan_iteration_timeout_seconds=_int_env(
+                "LLVM_HACKME_SCAN_ITERATION_TIMEOUT_SECONDS", 300
+            ),
             debounce_seconds=_int_env("LLVM_HACKME_DEBOUNCE_SECONDS", 300),
             baseline_update_interval_seconds=_int_env(
                 "LLVM_HACKME_BASELINE_UPDATE_INTERVAL_SECONDS", 3600

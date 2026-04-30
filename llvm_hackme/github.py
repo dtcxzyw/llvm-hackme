@@ -75,16 +75,24 @@ class IssueComment:
 class GitHubClient:
     def __init__(self, token: str, repository: str) -> None:
         self.repository = repository
-        self._client = httpx.AsyncClient(
+        self._token = token
+        self._client = self._make_client()
+
+    def _make_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
             base_url="https://api.github.com",
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"Bearer {self._token}",
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
                 "User-Agent": "llvm-hackme",
             },
-            timeout=httpx.Timeout(30.0),
+            timeout=httpx.Timeout(30.0, connect=10.0),
         )
+
+    async def reset_client(self) -> None:
+        await self._client.aclose()
+        self._client = self._make_client()
 
     async def aclose(self) -> None:
         await self._client.aclose()
