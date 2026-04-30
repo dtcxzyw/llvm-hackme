@@ -60,7 +60,7 @@ the patch.  Do NOT retry the same proof.
 
 ## Context Fields
 
-`read` `hack/context.json` first.  It contains these fields:
+read `hack/context.json` first.  It contains these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
 - `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
@@ -150,7 +150,7 @@ bug report.  Choose carefully.
 
 ### 1. Read the context
 
-`read` `hack/context.json` to get all paths and the hint.
+read `hack/context.json` to get all paths and the hint.
 
 ### 2. Read the patch diff
 
