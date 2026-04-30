@@ -209,9 +209,9 @@ Interpret results:
 The generalized proof used generic parameters and `@llvm.assume` preconditions.
 The counterexample from `hack_alive2` gives you **specific values** that violate
 the transform.  Replace the generic parameters with those concrete values, remove
-the `@llvm.assume` calls, and inline the preconditions so the fold actually fires
-on both baseline and PR opt — resulting in divergent outputs that the server
-can detect.
+the `@llvm.assume` calls, and inline the preconditions so the PR opt applies the
+buggy transform — the baseline either transforms differently or not at all,
+resulting in divergent outputs that alive-tv can detect.
 
 Keep only the `@src` function — do NOT include `@tgt`.  The server runs baseline
 and PR opt on your IR, then compares the outputs with alive-tv.
@@ -243,8 +243,9 @@ If the server rejects your submission, read the rejection reason carefully:
   is a constant, no overflow).  Express those conditions in `@llvm.assume` in the
   generalized proof.
 - After the generalized proof confirms a miscompilation exists under those assumptions,
-  the refined reproducer must hardcode the counterexample values so the fold fires
-  on both baseline and PR opt.
+  the refined reproducer must hardcode the counterexample values so the PR opt
+  applies the buggy transform while the baseline opt either does not apply it or
+  applies it correctly — the two outputs diverge and alive2 catches the regression.
 
 **IPO / multi-function**: `hack_submit_miscompilation` accepts a **single function
 definition** (with optionally `declare`-d external functions).  `hack_alive2`
