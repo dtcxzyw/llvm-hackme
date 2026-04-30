@@ -287,7 +287,7 @@ you **MUST** check whether these flags are still valid and drop them if not:
 | Attribute | Applies to | UB implication | When to drop |
 |-----------|-----------|----------------|--------------|
 | `range(S,E)` | ctlz, cttz, ctpop intrinsics | result is poison if outside range | guard removed, operand changed |
-| `noundef` | any instruction / call arg | returning undef/poison is immediate UB | `is_zero_poison` set, operand may be undef |
+| `noundef` | any instruction / call arg | returning undef/poison is immediate UB | `is_zero_poison` set, operand may be poison |
 | `align N` | load, store, call args | UB if pointer misaligned | address recomputed, aliasing changed |
 | `nonnull` | call args, return | UB if pointer is null | operand may become null through fold |
 | `dereferenceable(N)` | call args | UB if <N bytes readable | memory access transformed away |
