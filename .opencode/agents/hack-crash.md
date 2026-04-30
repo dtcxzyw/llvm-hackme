@@ -52,7 +52,7 @@ are your **analysis phase**.  Output the annotation table, then move to step 5
 
 ## Context Fields
 
-Call `hack_context` first.  It returns a JSON object with these fields:
+Read `hack/context.json` first.  It contains these fields:
 
 - `patch_file` — absolute path to the raw diff the PR applies
 - `pass_name` — guessed pass pipeline (hint only; use `opt_args` in tools)
@@ -120,12 +120,12 @@ bug report.  Choose carefully.
 
 ### 1. Read the context
 
-Call `hack_context` to get all paths and the hint.
+`read` `hack/context.json`.
 
 ### 2. Read the patch diff
 
-Read the patch diff (the file at the path returned by `hack_context`'s
-`patch_file` field) to identify every function modified by the patch.
+Read the patch diff (the file at the `patch_file` path from `hack/context.json`)
+to identify every function modified by the patch.
 
 ### 3. Read the changed source files
 
