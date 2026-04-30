@@ -293,8 +293,15 @@ you **MUST** check whether these flags are still valid and drop them if not:
 | `dereferenceable(N)` | call args | UB if <N bytes readable | memory access transformed away |
 | `dereferenceable_or_null(N)` | call args | UB if non-null but <N bytes readable | same |
 
-**Non-UB metadata on load instructions** (hints only, no UB if violated):
-- `!range`, `!nonnull`, `!align`, `!dereferenceable`, `!dereferenceable_or_null` — these are **optimization hints** attached to load results.  Dropping them degrades optimization but does NOT introduce UB.  Do NOT confuse them with the **attribute** variants above which **do** imply UB.
+**Metadata on load instructions** (also carry UB/poison semantics):
+
+| Metadata | Implication |
+|----------|-------------|
+| `!range` | result is poison if loaded value is outside range |
+| `!nonnull` | result is poison if loaded value is null |
+| `!align` | immediate UB if pointer is misaligned |
+| `!dereferenceable` | immediate UB if <N bytes readable at pointer |
+| `!dereferenceable_or_null` | immediate UB if non-null and <N bytes readable |
 
 ### 3. Fast-Math Flags
 
