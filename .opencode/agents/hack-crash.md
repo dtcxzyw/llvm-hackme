@@ -8,6 +8,9 @@ permission:
   write: deny
   edit: deny
   todowrite: allow
+  hack_baseline_opt: allow
+  hack_pr_opt: allow
+  hack_z3: allow
   hack_alive2: deny
   hack_submit_miscompilation: deny
   hack_submit_crash: allow
@@ -83,6 +86,12 @@ Takes a raw SMT-LIB2 string.  Returns JSON:
 {sat, unsat, unknown, timeout, output}
 ```
 Use `sat` to get a counterexample model from the `output` field.
+
+When you identify a WEAK precondition that depends on operand values (e.g., an
+`APInt(32, X)` that asserts `X.getBitWidth() <= 64`), encode the constraint as
+an SMT-LIB2 formula and use `hack_z3` to find concrete values that violate it.
+This is especially useful for bit-width mismatches (heuristic #2), where you need
+to find an operand type that breaks a hardcoded width assumption.
 
 **`hack_pr_opt(ir, opt_args)`** / **`hack_baseline_opt(ir, opt_args)`** — run the PR or
 baseline `opt` on `ir`.  Returns JSON:
@@ -166,6 +175,12 @@ From your annotation table, pick every row marked **WEAK**.  For each, construct
 minimal, self-contained LLVM IR module that violates the precondition.  Mutate
 existing tests from the diff, write new IR, try different opt_args, shuffle
 operands, change types, add/remove flags.
+
+When a precondition is numeric (e.g., a bit-width constraint or value range),
+use `hack_z3` to encode the violation condition as an SMT-LIB2 formula and solve
+for concrete counterexample values.  If `sat`, extract the violating operands
+from the model and hardcode them into your IR.  If `unsat` or `timeout`, the
+precondition may be unreachable — move to the next WEAK row.
 
 You may read additional source files during this step if needed to verify a
 precondition or check an assertion condition — but do NOT start a second round

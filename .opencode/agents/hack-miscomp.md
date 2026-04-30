@@ -8,6 +8,10 @@ permission:
   write: deny
   edit: deny
   todowrite: allow
+  hack_alive2: allow
+  hack_baseline_opt: allow
+  hack_pr_opt: allow
+  hack_z3: allow
   hack_submit_crash: deny
   hack_submit_miscompilation: allow
   external_directory:
@@ -404,8 +408,8 @@ The `ir` must contain exactly one function definition.  The server **does NOT** 
 transforms (incorrectly) but the baseline opt handles correctly (or does not
 transform at all).  The two opt outputs diverge → alive2 catches it.
 
-**Contrast with `hack_alive2`**: `hack_alive2(ir)` takes `@src`/`@tgt` and feeds
-them directly to alive-tv with no opt step.  `hack_submit_miscompilation`
+**Contrast with `hack_alive2`**: `hack_alive2(ir, alive2_args?)` takes `@src`/`@tgt` and
+feeds them directly to alive-tv with no opt step.  `hack_submit_miscompilation`
 takes a single function, runs both opts, and compares the outputs.  The two tools
 serve different stages:
 - `hack_alive2` — generalized proof (does the transform hold for all inputs?)
@@ -444,10 +448,9 @@ for the report; do NOT include a `RUN:` line in your submission.
 - **Submit early.**  Don't over-polish the IR — the server-side verification is
   the ultimate arbiter.  If rejected, the response will tell you why; fix it and
   retry.
-- **No `undef`.**  Never use `undef` as an operand value.  ` undef` anywhere in
-  the IR will be rejected by the server.  (The leading space before `undef`
-  ensures only the `undef` value token is matched, not names like `%undef_var`
-  that happen to contain "undef" as a substring.)
+- **No `undef`.**  Never use the `undef` value as an operand.  The server rejects
+  any IR containing the bare `undef` keyword (the literal token `undef`, not
+  variable names like `%undef_var` that merely contain the substring "undef").
 
 ## Example
 
