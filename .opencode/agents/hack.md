@@ -89,8 +89,8 @@ Returns JSON:
 You *may* use this to sanity-check your IR, but the server-side submit verification
 already performs baseline regression checking.  Do not rely on it to confirm a
 regression; submit and let the server decide.
-- **Always include `-S`.**  Same rule as `hack_pr_opt` — do NOT add `-o -` or
-  `-o /dev/stdout`.
+- **`-S` is always passed automatically.**  Same rule as `hack_pr_opt` — do NOT
+  add `-o -` or `-o /dev/stdout`.
 
 **`hack_alive2(ir, alive2_args?)`** — checks an `@src` / `@tgt` proof pair with alive2.
 The IR must define both `@src` and `@tgt` functions.  alive2 compares them directly
@@ -138,8 +138,9 @@ Call `hack_context` to get all paths and the hint.
 
 ### 2. Annotate every changed code path with Hoare Logic — MUST output a table
 
-**First**, read the patch diff (`hack/patch.diff`) to identify every function modified
-by the patch.  **Then**, for each changed function, `read` the source file in both
+**First**, read the patch diff (the file at the path returned by `hack_context`'s
+`patch_file` field) to identify every function modified by the patch.  **Then**,
+for each changed function, `read` the source file in both
 `llvm-project/` (baseline) and `llvm-project-pr/` (PR) at the relevant offsets.
 **Do NOT read source files before the patch diff** — the diff tells you what to read.
 
@@ -187,8 +188,8 @@ complete.  Submit first, refine only when the server gives you a rejection reaso
 
 ### 4. Submit immediately
 
-Call `hack_submit(ir, opt_args, kind, description)`.  If the server rejects your
-submission, read the rejection reason carefully:
+Call `hack_submit(ir, opt_args, kind, description, alive2_args?)`.  If the server
+rejects your submission, read the rejection reason carefully:
 
 - **"baseline also crashes/miscompiles"** — the bug is pre-existing, not a regression.
   Find a different candidate.
@@ -207,8 +208,12 @@ submission, read the rejection reason carefully:
    operands are not dominated.
 4. **FixedVector vs ScalableVector** — mixing `<N x ty>` with `<vscale x N x ty>`.
 5. **Operator / intrinsic matching** — if an optimization pattern-matches on
-   multiple operators, check that their opcodes or intrinsic IDs match before folding.
-6. **Poison assumptions** — if the patch assumes an operand is non-poison,
+    multiple operators, check that their opcodes or intrinsic IDs match before folding.
+6. **Flag / attribute violations** — instructions created or mutated in-place
+    may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
+    (range, noundef, align) that trigger asserts or poison when violated.
+    See Miscompilation Heuristics §§1-2 and §8 for the full flag/attribute tables.
+7. **Poison assumptions** — if the patch assumes an operand is non-poison,
    feed poison to trigger UB.  **Do NOT use `undef` in submitted IR** — the
    server rejects any IR containing ` undef`.
 

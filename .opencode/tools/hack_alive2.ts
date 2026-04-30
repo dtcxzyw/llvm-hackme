@@ -2,9 +2,11 @@ import fs from "node:fs"
 import path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 
+const ENOSPC = 28
+
 export default tool({
   description:
-    "Check an @src / @tgt proof pair with alive2.  The IR must define both @src and @tgt functions.",
+    "Check an @src / @tgt proof pair with alive2.  The IR must define both @src and @tgt functions.  Pass loop unroll flags via alive2_args, e.g. '-src-unroll=4 -tgt-unroll=4'.",
   args: {
     ir: tool.schema
       .string()
@@ -34,6 +36,9 @@ export default tool({
       env, stdout: "pipe", stderr: "pipe",
     })
     tryCleanup(tmp)
+    if (aliveProc.exitCode === ENOSPC) {
+      return JSON.stringify({ error: "disk_full", correct: false, miscompile: false })
+    }
 
     const aliveOut = decodeBuf(aliveProc.stdout)
     const aliveErr = decodeBuf(aliveProc.stderr)
