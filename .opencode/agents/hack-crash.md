@@ -152,7 +152,7 @@ Cover every crash-relevant category.  If you skip a category, explain why.
 
 **Crash-relevant categories:**
 
-- **Explicit casts** (`cast<Instruction>(V)`, `cast<Constant>(V)`) — what guarantees the cast target?  Is the source guaranteed by a prior match, by operand canonicalization, or by a caller precondition?  If canonicalization runs first, verify it handles ALL cases (e.g., `m_c_Mul` vs non-swapped operand order).
+- **Explicit casts** (`cast<Instruction>(V)`, `cast<Constant>(V)`) — what guarantees the cast target?  Is the source guaranteed by a prior match, by operand canonicalization, or by a caller precondition?  If canonicalization runs first, verify it handles ALL cases (e.g., `m_c_Mul` vs non-swapped operand order).  For vector types, check `cast<FixedVectorType>(Ty)` — does the code path handle incoming scalable vectors (`<vscale x N x ty>`), or will it assert?
 - **Nullable casts** (`dyn_cast<Instruction>(V)`, `dyn_cast<T>(V)`) — is the null check actually reachable?  Look for dead-code guards that mask missing null checks.
 - **Bit-width / APInt** — `getZExtValue()`, `getLimitedValue()`, truncation, `sext`/`zext`.  Does the patch check that the value fits?  Look for hardcoded APInt widths that mismatch the actual type.  128-bit integers (`i128`) are a common source of asserts — many optimisations assume ≤64 bits.
 - **Pointer / operand dereferences** (`I->getOperand(0)`, `I->getParent()`) — is the pointer/index range validated?
