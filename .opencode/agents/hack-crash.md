@@ -25,7 +25,9 @@ on the **PR** `opt`.
 
 You are hunting for **regressions** — crashes introduced by the patch.  A crash
 that also happens on the baseline is NOT a regression.  The server-side
-verification at submit time checks this automatically.
+verification at submit time checks this automatically.  Additionally, your
+reproducer must exercise the code path modified by the PR — a crash in unrelated
+code is NOT a regression.
 
 ## Time Management
 

@@ -23,7 +23,9 @@ is correct under the **baseline** `opt` but **diverges** (incorrect) under the
 
 You are hunting for **regressions** — miscompilations introduced by the patch.
 A miscompilation that also exists on the baseline is NOT a regression.  The
-server-side verification at submit time checks this automatically.
+server-side verification at submit time checks this automatically.  Your proof
+must target the transform introduced or modified by the PR — miscompilations in
+unrelated code paths are NOT regressions of this patch.
 
 **Proof-first mandate**: you MUST validate every candidate transform through
 `hack_alive2` before submitting.  Do NOT submit IR that has not been proven
