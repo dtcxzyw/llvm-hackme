@@ -60,6 +60,45 @@ def _make_run_line(command: list[str]) -> str:
     return "; RUN: opt -passes=? -S"
 
 
+def _render_reproducer_section(lines: list[str], reproducer: Reproducer) -> None:
+    lines.append("## Reproducer")
+    lines.append("")
+    lines.append(f"**Kind**: {reproducer.kind.value}")
+    lines.append("")
+
+    if reproducer.source_content:
+        run_line = _make_run_line(reproducer.command)
+        lines.append("**IR Reproducer**:")
+        lines.append("```llvm")
+        lines.append(run_line)
+        lines.append(reproducer.source_content.strip())
+        lines.append("```")
+        lines.append("")
+
+    if reproducer.kind == BugKind.CRASH and reproducer.stacktrace:
+        lines.append("**Stacktrace**:")
+        lines.append("```")
+        lines.append(reproducer.stacktrace.strip())
+        lines.append("```")
+        lines.append("")
+
+    if reproducer.kind == BugKind.MISCOMPILATION and reproducer.alive2_counterexample:
+        lines.append("**Alive2 Counterexample**:")
+        lines.append("```")
+        lines.append(reproducer.alive2_counterexample.strip())
+        lines.append("```")
+        lines.append("")
+    if reproducer.alive2_args:
+        lines.append(f"**Alive2 Args**: `{reproducer.alive2_args}`")
+        lines.append("")
+    if reproducer.opt_output:
+        lines.append("**Opt Output**:")
+        lines.append("```llvm")
+        lines.append(reproducer.opt_output.strip())
+        lines.append("```")
+        lines.append("")
+
+
 def make_comment_body(
     state: CommentState,
     reproducer: Reproducer | None,
@@ -87,45 +126,7 @@ def make_comment_body(
     lines.append("")
 
     if state == CommentState.BUG_FOUND and reproducer is not None:
-        lines.append("## Reproducer")
-        lines.append("")
-        lines.append(f"**Kind**: {reproducer.kind.value}")
-        lines.append("")
-
-        if reproducer.source_content:
-            run_line = _make_run_line(reproducer.command)
-            lines.append("**IR Reproducer**:")
-            lines.append("```llvm")
-            lines.append(run_line)
-            lines.append(reproducer.source_content.strip())
-            lines.append("```")
-            lines.append("")
-
-        if reproducer.kind == BugKind.CRASH and reproducer.stacktrace:
-            lines.append("**Stacktrace**:")
-            lines.append("```")
-            lines.append(reproducer.stacktrace.strip())
-            lines.append("```")
-            lines.append("")
-
-        if (
-            reproducer.kind == BugKind.MISCOMPILATION
-            and reproducer.alive2_counterexample
-        ):
-            lines.append("**Alive2 Counterexample**:")
-            lines.append("```")
-            lines.append(reproducer.alive2_counterexample.strip())
-            lines.append("```")
-            lines.append("")
-        if reproducer.alive2_args:
-            lines.append(f"**Alive2 Args**: `{reproducer.alive2_args}`")
-            lines.append("")
-        if reproducer.opt_output:
-            lines.append("**Opt Output**:")
-            lines.append("```llvm")
-            lines.append(reproducer.opt_output.strip())
-            lines.append("```")
-            lines.append("")
+        _render_reproducer_section(lines, reproducer)
 
     elif state == CommentState.STILL_REPRODUCES and reproducer is not None:
         lines.append("## Status: Previously reported issue still reproduces")
@@ -134,6 +135,10 @@ def make_comment_body(
             f"The correctness bug ({reproducer.kind.value}) previously reported "
             "still reproduces with the current PR update."
         )
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        _render_reproducer_section(lines, reproducer)
 
     elif state == CommentState.NO_ISSUE_FOUND_FOR_CURRENT_PATCH:
         lines.append("## Status: Previously reported issue no longer reproduces")
