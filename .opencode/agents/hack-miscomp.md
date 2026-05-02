@@ -362,6 +362,13 @@ the old flags and metadata **persist** on the modified instruction.  You MUST ch
 
 The principle: **any in-place mutation must re-validate all flags and attributes on the instruction.**
 
+### 8. Narrow Type Arithmetic
+
+Arithmetic transforms that are sound for `i8`/`i16`/`i32`/`i64` may be **unsound for `i1` and
+`i2`**, especially when the transform involves flag propagation (poison-generating flags like
+`nuw`, `nsw`, `exact`).  Narrow types have small value ranges where overflow, truncation, and
+wrapping semantics differ from wider types.
+
 ## Tool Timeouts
 
 All tool invocations have internal timeouts.  If a tool times out or returns an error:
