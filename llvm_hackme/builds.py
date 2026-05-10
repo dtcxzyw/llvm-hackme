@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from llvm_hackme.commands import (
+    CommandError,
     append_command_log_message,
     minimal_execution_env,
     run_command,
@@ -53,16 +54,8 @@ class BuildManager:
         old_llvm = await self._rev_parse("HEAD", self.config.llvm_project_dir)
         old_alive2 = await self._rev_parse("HEAD", self.config.alive2_dir)
 
-        await run_command(
-            ["git", "fetch", "--prune", "origin"],
-            cwd=self.config.llvm_project_dir,
-            env=minimal_execution_env(),
-        )
-        await run_command(
-            ["git", "fetch", "--prune", "origin"],
-            cwd=self.config.alive2_dir,
-            env=minimal_execution_env(),
-        )
+        await self._git_fetch_prune(self.config.llvm_project_dir)
+        await self._git_fetch_prune(self.config.alive2_dir)
 
         await self._checkout_rev("origin/main", self.config.llvm_project_dir)
         await self._checkout_rev("origin/master", self.config.alive2_dir)
@@ -209,6 +202,43 @@ class BuildManager:
             merge=self.config.fuzz_tools_build_dir / "merge",
         )
 
+    async def _git_fetch_prune(self, cwd: Path) -> None:
+        result = await run_command(
+            ["git", "fetch", "--prune", "origin"],
+            cwd=cwd,
+            env=minimal_execution_env(),
+            check=False,
+        )
+        if result.returncode != 0:
+            raise CommandError(result)
+        await self._maybe_recover_gc(cwd, result.stderr)
+
+    async def _maybe_recover_gc(self, cwd: Path, stderr: str) -> None:
+        if "unreachable loose objects" not in stderr.lower():
+            return
+        try:
+            git_dir_result = await run_command(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=cwd,
+                env=minimal_execution_env(),
+            )
+            gc_log = Path(git_dir_result.stdout.strip()) / "gc.log"
+        except Exception:
+            return
+        if not gc_log.exists():
+            return
+        LOGGER.info("Detected git GC issue in %s, running git prune", cwd)
+        gc_log.unlink(missing_ok=True)
+        try:
+            await run_command(
+                ["git", "prune"],
+                cwd=cwd,
+                env=minimal_execution_env(),
+            )
+            LOGGER.info("git prune completed in %s", cwd)
+        except Exception as exc:
+            LOGGER.warning("git prune failed in %s: %s", cwd, exc)
+
     async def _ensure_clone(self, path: Path, repository: str) -> None:
         if (path / ".git").exists():
             return
@@ -233,11 +263,7 @@ class BuildManager:
                 cwd=self.config.llvm_project_dir,
                 env=minimal_execution_env(),
             )
-        await run_command(
-            ["git", "fetch", "--prune", "origin"],
-            cwd=self.config.llvm_project_pr_dir,
-            env=minimal_execution_env(),
-        )
+        await self._git_fetch_prune(self.config.llvm_project_pr_dir)
         await run_command(
             ["git", "reset", "--hard", baseline_revision],
             cwd=self.config.llvm_project_pr_dir,
