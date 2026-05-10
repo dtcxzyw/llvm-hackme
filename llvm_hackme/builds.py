@@ -355,7 +355,16 @@ class BuildManager:
         LOGGER.info("Building PR opt...")
         append_command_log_message("--- Building PR opt ---")
         await run_command(
-            ["cmake", "--build", ".", "-j", str(self.config.build_jobs), "-t", "opt"],
+            [
+                "cmake",
+                "--build",
+                ".",
+                "--clean-first",
+                "-j",
+                str(self.config.build_jobs),
+                "-t",
+                "opt",
+            ],
             cwd=self.config.llvm_build_pr_dir,
             env=self._build_env(self.config.llvm_project_pr_dir),
             timeout=self._BUILD_TIMEOUT,
