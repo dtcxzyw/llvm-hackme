@@ -41,6 +41,8 @@ STATUS_LABELS: dict[str, str] = {
     "passed": "PASSED",
     "review_rejected": "REVIEW REJECTED",
     "pending": "PENDING",
+    "patch_failed": "PATCH FAILED",
+    "build_failed": "BUILD FAILED",
 }
 
 

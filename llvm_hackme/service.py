@@ -257,7 +257,7 @@ class HackmeService:
                         )
                         LOGGER.exception("Failed to prepare PR worktree #%s", pr_number)
                         transient = True
-                        await self._maybe_backoff(pr_number, pr)
+                        await self._maybe_backoff(pr_number, pr, "patch_apply")
                         return
 
                     try:
@@ -269,7 +269,7 @@ class HackmeService:
                         )
                         LOGGER.exception("Failed to build PR opt #%s", pr_number)
                         transient = True
-                        await self._maybe_backoff(pr_number, pr)
+                        await self._maybe_backoff(pr_number, pr, "build")
                         return
 
                     toolchain = self._builds.toolchain_paths(baseline_revision)
@@ -381,7 +381,7 @@ class HackmeService:
                 is_transient_error(exc) or (hasattr(exc, "retryable") and exc.retryable)  # type: ignore[union-attr]
             ):
                 transient = True
-                await self._maybe_backoff(pr_number, pr)
+                await self._maybe_backoff(pr_number, pr, "pending")
         finally:
             eval_summary = {
                 "pr_number": pr_number,
@@ -672,18 +672,28 @@ class HackmeService:
         except Exception:
             LOGGER.warning("Status callback failed", exc_info=True)
 
-    async def _maybe_backoff(self, pr_number: int, pr: PullRequest) -> None:
+    async def _maybe_backoff(
+        self, pr_number: int, pr: PullRequest, reason: str
+    ) -> None:
         count = self._state.increment_retry(pr_number)
         if count >= 3:
             pending_until = datetime.now(timezone.utc) + timedelta(minutes=30)
             self._state.set_pending_until(pr_number, pending_until)
+            status = (
+                "patch_failed"
+                if reason == "patch_apply"
+                else "build_failed"
+                if reason == "build"
+                else "pending"
+            )
             LOGGER.warning(
-                "PR #%d failed %d times, pending until %s",
+                "PR #%d failed %d times (%s), pending until %s",
                 pr_number,
                 count,
+                reason,
                 pending_until,
             )
-            await self._emit_status(pr, "pending")
+            await self._emit_status(pr, status)
 
     async def _baseline_update_loop(self) -> None:
         while True:
