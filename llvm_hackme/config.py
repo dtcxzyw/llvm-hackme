@@ -119,7 +119,7 @@ class Config:
             baseline_update_interval_seconds=_int_env(
                 "LLVM_HACKME_BASELINE_UPDATE_INTERVAL_SECONDS", 3600
             ),
-            fuzz_budget_seconds=_int_env("LLVM_HACKME_FUZZ_BUDGET_SECONDS", 600),
+            fuzz_budget_seconds=_int_env("LLVM_HACKME_FUZZ_BUDGET_SECONDS", 120),
             hack_crash_budget_seconds=_int_env(
                 "LLVM_HACKME_HACK_CRASH_BUDGET_SECONDS", 600
             ),
