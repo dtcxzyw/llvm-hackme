@@ -121,10 +121,10 @@ class Config:
             ),
             fuzz_budget_seconds=_int_env("LLVM_HACKME_FUZZ_BUDGET_SECONDS", 120),
             hack_crash_budget_seconds=_int_env(
-                "LLVM_HACKME_HACK_CRASH_BUDGET_SECONDS", 600
+                "LLVM_HACKME_HACK_CRASH_BUDGET_SECONDS", 1200
             ),
             hack_miscomp_budget_seconds=_int_env(
-                "LLVM_HACKME_HACK_MISCOMP_BUDGET_SECONDS", 600
+                "LLVM_HACKME_HACK_MISCOMP_BUDGET_SECONDS", 1200
             ),
             hack_model=_required_env("LLVM_HACKME_HACK_MODEL"),
             max_patch_chars=_int_env("LLVM_HACKME_MAX_PATCH_CHARS", 200_000),

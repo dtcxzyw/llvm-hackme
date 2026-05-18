@@ -508,9 +508,10 @@ class HackmeService:
             p.unlink(missing_ok=True)
             os.mkfifo(str(p))
 
+        context_file = str(config.hack_context_file)
         if agent_name == "hack-crash":
             hack_prompt = (
-                "You are the crash hack agent.  Read `hack/context.json` first to "
+                f"You are the crash hack agent.  Read `{context_file}` first to "
                 "get all paths and configuration, then analyze the patch diff file "
                 "to find a crash regression.  When you find one, call "
                 "`hack_submit_crash` with the IR, opt_args, and description.  "
@@ -518,7 +519,7 @@ class HackmeService:
             )
         else:
             hack_prompt = (
-                "You are the miscompilation hack agent.  Read `hack/context.json` "
+                f"You are the miscompilation hack agent.  Read `{context_file}` "
                 "first to get all paths and configuration, then analyze the patch "
                 "diff file to find a miscompilation regression.  When you find one, "
                 "call `hack_submit_miscompilation` with the IR, opt_args, "
