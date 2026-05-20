@@ -175,6 +175,10 @@ minimal, self-contained LLVM IR module that violates the precondition.  Mutate
 existing tests from the diff, write new IR, try different opt_args, shuffle
 operands, change types, add/remove flags.
 
+**Width-dependent constants**: when you change the bitwidth of a test case, update
+ALL constants that depend on the bitwidth according to the source code's formula.
+Do NOT hardcode a constant from a different bitwidth.
+
 When a precondition is numeric (e.g., a bit-width constraint or value range),
 use `hack_z3` to encode the violation condition as an SMT-LIB2 formula and solve
 for concrete counterexample values.  If `sat`, extract the violating operands
@@ -225,7 +229,9 @@ each step complete as you finish it so you don't lose track in complex patches.
     (e.g., `APInt(32, ...)` on a 16-bit type) will assert-fail.  128-bit integers
     (`i128`) are a common source of bugs — many optimisations assume ≤64 bits and
     skip bounds checks or use `getZExtValue()` without checking the value fits in
-    a 64-bit result.
+    a 64-bit result.  **Non-power-of-two bitwidths** and non-power-of-two vector
+    element counts are legal in LLVM IR.  Many optimisations implicitly assume
+    power-of-two widths; always test non-power-of-two types.
 3. **Pointer / operand dereferences** — `I->getOperand(0)`, `I->getParent()`.
     Is the pointer/index range validated before dereference?
 4. **Dominance violations** — creating an instruction at a position where its
@@ -235,6 +241,9 @@ each step complete as you finish it so you don't lose track in complex patches.
 6. **Flag / attribute violations** — instructions created or mutated in-place
     may carry invalid flags (nsw, nuw, disjoint, inbounds, nneg) or attributes
     (range, noundef, align) that trigger asserts when the flag contract is violated.
+7. **Pattern coverage** — when a matcher accepts multiple equivalent forms for the
+    same sub-pattern, you must test EVERY form.  Different forms may have different
+    validity conditions that fail only under non-obvious type or value constraints.
 
 ## Tool Timeouts
 

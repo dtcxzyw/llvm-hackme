@@ -191,6 +191,10 @@ define i1 @tgt(i8 %x, i8 %C) {
 **Prefer small bit-widths** (`i8`, `half`, `bfloat`) to keep alive2's search
 space small and avoid timeouts.  Only widen if the transform requires larger widths.
 
+**Width-dependent constants**: when you vary the bitwidth in a proof, update
+ALL constants that are derived from the bitwidth according to the source code
+formula.
+
 **Performance tip for pointer proofs:** use a reduced pointer width:
 ```llvm
 target datalayout = "p:8:8:8"
@@ -368,6 +372,18 @@ Arithmetic transforms that are sound for `i8`/`i16`/`i32`/`i64` may be **unsound
 `i2`**, especially when the transform involves flag propagation (poison-generating flags like
 `nuw`, `nsw`, `exact`).  Narrow types have small value ranges where overflow, truncation, and
 wrapping semantics differ from wider types.
+
+### 9. Non-Power-of-Two Bitwidths
+
+Transforms that are correct at standard bitwidths may be incorrect at non-power-of-two
+bitwidths.  Non-power-of-two vector element counts are also legal.  Always test
+non-power-of-two types — many optimisations implicitly assume power-of-two widths.
+
+### 10. Pattern Coverage
+
+When the transform's pattern matches multiple alternative forms, write a separate
+generalized proof for each distinct form.  Do not assume that testing one form covers
+all others — different forms may be correct under different width or value constraints.
 
 ## Tool Timeouts
 
