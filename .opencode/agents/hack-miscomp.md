@@ -28,9 +28,9 @@ is correct under the **baseline** `opt` but **diverges** (incorrect) under the
 
 You are hunting for **regressions** — miscompilations introduced by the patch.
 A miscompilation that also exists on the baseline is NOT a regression.  The
-server-side verification at submit time checks this automatically.  Your proof
-must target the transform introduced or modified by the PR — miscompilations in
-unrelated code paths are NOT regressions of this patch.
+server-side verification at submit time checks this automatically.  Your
+reproducer must exercise the transform introduced or modified by the PR —
+miscompilations in unrelated code paths are NOT regressions of this patch.
 
 **Proof-first mandate**: you MUST call `hack_alive2` and get `miscompile: true` for
 every candidate before calling `hack_submit_miscompilation`.  Submitting IR that has
@@ -244,6 +244,20 @@ the transform.  Replace the generic parameters with those concrete values, remov
 the `@llvm.assume` calls, and inline the preconditions so the PR opt applies the
 buggy transform — the baseline either transforms differently or not at all,
 resulting in divergent outputs that alive-tv can detect.
+
+**Two mandatory checks before submitting:**
+
+1. **Your IR must be legal LLVM IR.**  Run `hack_pr_opt(ir, opt_args)` and check
+   stderr.  If stderr contains `error:`, `does not dominate`, `input module is broken`,
+   or any verifier complaint, your IR is malformed — fix it.  A verifier rejection
+   is NOT a miscompilation and will cause the server to reject.
+
+2. **Your IR must trigger the modified code.**  After refinement, the concrete
+   reproducer must still exercise the transform introduced or modified by the PR.
+   A miscompilation in an unrelated code path is NOT a regression of this patch.
+   Verify: does the refined IR, when run through `hack_pr_opt` with the right
+   `opt_args`, produce different output than `hack_baseline_opt`?  If both
+   produce identical output, the transform didn't fire — refine the IR.
 
 Keep only the `@src` function — do NOT include `@tgt`.  The server runs baseline
 and PR opt on your IR, then compares the outputs with alive-tv.
@@ -471,15 +485,21 @@ alive2_args — optional extra alive-tv flags, e.g. "-src-unroll=4 -tgt-unroll=4
               (max unroll 128)
 ```
 
-The IR must be a self-contained module with `target datalayout` and `target triple`
-if needed.  No references to external files.  The server will prepend a `RUN:` header
-for the report; do NOT include a `RUN:` line in your submission.
+The IR must be a self-contained, verifier-legal module with `target datalayout` and
+`target triple` if needed.  No references to external files.  The server will prepend
+a `RUN:` header for the report; do NOT include a `RUN:` line in your submission.
 
 ## Rules
 
 - Do **NOT** speculate.  Read the actual source code to confirm every assumption.
 - **Regressions only.**  A bug that also exists on the baseline is NOT a regression.
   The server-side submit verification will detect and reject pre-existing bugs.
+- **Valid IR only.**  Your submitted IR must be legal, well-formed LLVM IR that
+  passes the verifier.  If `hack_pr_opt` rejects your IR with an `error:` in stderr,
+  fix the IR — a verifier rejection is not a miscompilation.
+- **Must exercise the modified code.**  The submitted reproducer must trigger the
+  transform introduced or modified by the PR.  A miscompilation in unrelated code
+  is not a regression of this patch.
 - **Proof-first.**  Call `hack_alive2` and get `miscompile: true` before submitting.
   Submissions without a confirmed `miscompile: true` result will be rejected.
 - **opt_args is your choice.**  The context hint is a starting point.  You control
