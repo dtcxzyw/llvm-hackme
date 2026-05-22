@@ -51,9 +51,6 @@ def _setup_logging(logs_dir: Path) -> None:
 
 
 def _validate_environment(config: Config) -> None:
-    if not shutil.which("z3"):
-        raise RuntimeError("z3 is not installed.  Install z3 and ensure it is on PATH.")
-
     if not shutil.which("re2c"):
         raise RuntimeError(
             "re2c is not installed."

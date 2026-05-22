@@ -107,7 +107,7 @@ When a transient error occurs during processing (network failures, build errors,
 ## Deployment Constraints
 
 - **Single-instance only** — only one `HackmeService` process runs against a given repository at a time. There is no distributed coordination; `_pr_tasks` and the SQLite DB assume exclusive ownership. Running multiple instances concurrently against the same repository can produce duplicate GitHub comments.
-- When the service starts, it calls `_validate_environment()` synchronously before entering any async loop. This checks that `z3`, `llvm-symbolizer`, and `opencode` are on `PATH`, and that the configured `LLVM_HACKME_HACK_MODEL` is available.
+- When the service starts, it calls `_validate_environment()` synchronously before entering any async loop. This checks that `llvm-symbolizer` and `opencode` are on `PATH`, and that the configured `LLVM_HACKME_HACK_MODEL` is available.
 
 ## Comment Dedup
 
@@ -179,7 +179,7 @@ The legacy pass manager syntax `instcombine` (bare, without `<no-verify-fixpoint
 
 When mutation-based fuzzing finds no bug (or is skipped for source-only patches), two lightweight LLM agents run in parallel. The agents are defined in `.opencode/agents/hack-crash.md` and `.opencode/agents/hack-miscomp.md`, invoked via `opencode run --agent hack-crash` and `--agent hack-miscomp` in headless mode. Both agents run concurrently with `asyncio.wait(FIRST_COMPLETED)` — the first agent to find a bug stops the other. Agent output is logged to `logs_dir/opencode-pr{number}-{suffix}-{ts}.log` (JSON) and rendered to `.txt` for post-run auditing.
 
-The model is set via the required `LLVM_HACKME_HACK_MODEL` environment variable in `provider/model` format (e.g. `deepseek/deepseek-v4-pro`). At startup the service validates the model is present in `opencode models` output and that `z3` is on `PATH`.
+The model is set via the required `LLVM_HACKME_HACK_MODEL` environment variable in `provider/model` format (e.g. `deepseek/deepseek-v4-pro`). At startup the service validates the model is present in `opencode models` output.
 
 ### Two-pipe handshake
 
@@ -227,9 +227,8 @@ This guarantees the service does not hang permanently regardless of how the hack
   - **Path confinement** — `ir_path` arguments are resolved via `path.resolve` and checked to stay within `work_dir`; absolute paths and `..` traversal are rejected.
   - **Memory limits** — opt and alive2 are wrapped with `prlimit --as=<bytes>` using the `opt_memory_limit_bytes` from context (1 GiB default).
   - **Environment isolation** — all tool spawns use `minimalEnv()` (only `HOME`, `PATH`, `TMPDIR`, `LANG`, `LC_ALL`); secrets like `GITHUB_TOKEN` and `OPENAI_AUTH_KEY` are never exposed to child processes.
-  - **Output truncation** — stdout/stderr are truncated to the last 8 000 bytes for opt/alive2 and 12 000 bytes for z3.
+  - **Output truncation** — stdout/stderr are truncated to the last 8 000 bytes for opt/alive2.
 - `hack_submit` enforces a 10 MB IR payload limit; larger submissions are rejected.
-- z3 is invoked with memory (4 GB) and time (30 s) limits via its own `-memory:` and `-T:` flags.
 - The hack budgets are set per agent type: crash agents use `LLVM_HACKME_HACK_CRASH_BUDGET_SECONDS` (default 600 s), miscompilation agents use `LLVM_HACKME_HACK_MISCOMP_BUDGET_SECONDS` (default 600 s). Each budget is enforced as a `wait_for` timeout on the respective opencode process.
 - Server-side verification (`_hack_verify`) also applies `memory_limit_bytes` when running `check_crash` / `check_miscompilation`.
 
