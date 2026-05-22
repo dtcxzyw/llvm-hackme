@@ -111,7 +111,7 @@ There are **four** distinct outcomes — understand which is which:
   Move to the next candidate transform.
 - **`miscompile: true`** — alive2 found a concrete input where `@src` and `@tgt`
   produce different results.  **This is the ONLY outcome that qualifies for submission.**
-  Read the `counterexample` to extract the violating input values, then proceed to step 6.
+  Read the `counterexample` to extract the violating input values, then proceed to step 7.
 - **`correct: false, miscompile: false`** (alive2 says "Source is more defined than
   target") — `@src` accepts inputs that cause undefined behavior in `@tgt`, so the
   two are not comparable.  This does NOT mean the transform is a miscompilation.
@@ -178,14 +178,18 @@ and `llvm-project-pr/` (PR) at the relevant offsets.  Also read any referenced
 declarations (headers, base classes, helper utilities) needed to understand the
 transform logic, preconditions, and flag/metadata handling.
 
-### 4. Write a generalized proof
+### 4. Read the proof methodology
+
+read `llvm/docs/InstCombineContributorGuide.md` in `llvm-project/`, section §Proofs.
+This explains the generalized proof format: `@src`/`@tgt` pairs with `@llvm.assume`
+preconditions.  Read it **before** writing any proofs — do NOT skip this step.
+
+### 5. Write a generalized proof
 
 For each transform identified in the patch, write a **generalized** `@src`/`@tgt`
 proof pair.  Use generic parameters (not hardcoded constants) and express
 preconditions with `@llvm.assume` and `icmp`.  This proves or disproves the
 transform for *all* possible inputs within the stated constraints.
-
-Follow the methodology from `llvm/docs/InstCombineContributorGuide.md` §Proofs:
 
 Example for a fold that replaces `(X sdiv C) slt X` with `X sgt 0`:
 ```llvm
@@ -214,7 +218,7 @@ formula.
 target datalayout = "p:8:8:8"
 ```
 
-### 5. Run `hack_alive2` on the proof
+### 6. Run `hack_alive2` on the proof
 
 ```llvm
 hack_alive2(ir, alive2_args?)
@@ -223,7 +227,7 @@ hack_alive2(ir, alive2_args?)
 Interpret results carefully — only `miscompile: true` qualifies for submission:
 
 - **`miscompile: true`** → read the `counterexample` to see which specific input values
-  caused the violation.  Proceed to step 6.
+  caused the violation.  Proceed to step 7.
 - **`correct: true`** → the transform is correct for all inputs within preconditions.
   Move to the next candidate transform in the patch.
 - **`correct: false, miscompile: false`** → your `@src` preconditions are too weak.
@@ -236,7 +240,7 @@ Interpret results carefully — only `miscompile: true` qualifies for submission
 `miscompile: true` for the generalized proof.**  A submission not backed by a confirmed
 `miscompile: true` will be rejected by the server.
 
-### 6. Refine the counterexample into a concrete reproducer
+### 7. Refine the counterexample into a concrete reproducer
 
 The generalized proof used generic parameters and `@llvm.assume` preconditions.
 The counterexample from `hack_alive2` gives you **specific values** that violate
@@ -271,7 +275,7 @@ define i1 @f(i8 %x) {
 }
 ```
 
-### 7. Submit immediately
+### 8. Submit immediately
 
 Call `hack_submit_miscompilation(ir, opt_args, description, alive2_args?)`.
 If the server rejects your submission, read the rejection reason carefully:
