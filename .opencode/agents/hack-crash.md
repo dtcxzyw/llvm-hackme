@@ -35,9 +35,10 @@ code is NOT a regression.
 
 ## Time Management
 
-You have a limited time budget.  Steps 2-3 are your **analysis phase** — read only what you need
-to find crash points.  Then immediately move to step 4 (construct IR) and step 5 (test it).
-If you cannot trigger a crash for any crash point, state that and stop.
+You have a limited time budget.  Do NOT batch your analysis — work in a tight loop:
+read one function → find a crash point in it → construct IR → test.  If the test
+doesn't crash, use the result to decide what to read next.  If you exhaust all
+plausible crash points, stop and report no bug.
 
 ## Exit Rules
 
@@ -132,71 +133,61 @@ read `hack/context.json` to get all paths and the hint.
 Read the patch diff (the file at the `patch_file` path from `hack/context.json`)
 to identify every function modified by the patch.
 
-### 3. Read the changed source files
+### 3. Read-test loop — one function at a time
 
-For each changed function, `read` the source file in both `llvm-project/`
-(baseline) and `llvm-project-pr/` (PR) at the relevant offsets.  Also read
-any referenced declarations (headers, base classes, helper utilities) needed
-to understand preconditions and invariants.
+The core workflow is: **read a small section → find a crash point → build IR → test.**
 
-### 4. Identify every crash point
+**3a. Pick one changed function and read it.**
 
-Scan the changed code for every place where a crash can occur.  Focus on two classes:
+Read one changed function from `llvm-project-pr/` at a time.  Keep your `read` small
+(≤100 lines).  Read the same function in `llvm-project/` (baseline) if you need to
+compare before vs. after.  If you need helper/callee context, read ONLY the specific
+declaration or utility that directly affects the crash condition.
 
-**A. Opt itself crashes** — `opt` hits an assertion, segmentation fault, or unhandled edge case
-while running the pass.  Look for:
-- `assert()` / `llvm_unreachable()` — what must be true for the assertion to hold?
-- `cast<T>(V)` / `dyn_cast<T>(V)` used unsafely — when could `V` not be-a `T`?
-- `APInt(N, X)` — does `X` always fit in `N` bits?  What type does the caller provide?
-- `getZExtValue()` / `getSExtValue()` — does the value always fit in 64 bits?
-- `I->getOperand(N)` — is the Nth operand guaranteed to exist?
-- `I->getParent()` / `I->getModule()` — is the instruction inserted yet?
+**3b. Find a crash point in what you just read.**
 
-**B. PR opt produces illegal IR** — the transform creates or mutates an instruction in a way
-that violates the LLVM verifier, causing `opt` to exit non-zero with an `error:` in stderr.
-This IS a real crash for submission purposes.  Look for:
-- Dominance violations — operands not dominating their use point after the transform
-- Type mismatches — fold produces an instruction with the wrong return type
-- PHI node invariants — wrong number of incoming values, mismatched predecessor set
-- Flag/attribute contracts — flags left on an instruction whose operands violate them
-- Invalid constant expressions — APInt, ConstantExpr with impossible parameters
+From the code you just read, identify **one** specific crash condition.  Two classes:
 
-For each crash point, write down the **concrete condition** that triggers it, e.g.:
+**A. Opt itself crashes** — assertion, segmentation fault, or unhandled edge case.
+  Look for: `assert()`, `llvm_unreachable()`, `cast<T>(V)`, `APInt(N, X)`,
+  `getZExtValue()` / `getSExtValue()`, `I->getOperand(N)`, `I->getParent()`.
+
+**B. PR opt produces illegal IR** — the transform creates or mutates an instruction
+  violating the LLVM verifier (dominance violation, type mismatch, PHI-node invariants,
+  flag contract broken).  The verifier catches this and `opt` exits non-zero — this
+  IS a real crash for submission purposes.
+
+Write down the concrete trigger condition, e.g.:
 ```
-Line 2370: APInt::getOneBitSet(WiderWidth, C0->getZExtValue())
-  → crashes if getZExtValue() >= WiderWidth (setBit asserts BitPosition < BitWidth)
-  → happens when: shift amount C0 >= 2 * BitWidth, e.g. shl i8 %x, 16
+Line 2370: getOneBitSet(WiderWidth, C0->getZExtValue())
+  → crashes when getZExtValue() >= WiderWidth
+  → shift amount >= 2 * BitWidth, e.g. shl i8 %x, 16
 ```
 
-Do NOT create a Hoare annotation table or classify things as WEAK/OK.
-List only the crash points, each with its trigger condition.  Move on as soon as you
-have enough to construct IR — do NOT try to be exhaustive.
+Do NOT list ALL crash points — just pick ONE.  Do NOT create tables or WEAK/OK labels.
 
-### 5. Construct a test case for a crash point
+**3c. Construct IR to trigger it.**
 
-Pick a crash point from step 4 and construct a minimal, self-contained LLVM IR module
-that triggers it.  Your IR must be **valid, well-formed LLVM IR** — it must pass the
-LLVM verifier on its own.  The crash should come from the PR opt either:
-- crashing internally (assertion, signal), or
-- producing IR that the verifier rejects (dominance violation, type mismatch, etc.)
+Build a minimal, valid LLVM IR module that should reach the crash point under the
+PR `opt`.  Check that the surrounding code (callers, gate conditions, prior checks)
+allows your IR to actually reach the crash site — read the call chain if needed,
+but stay focused on this single crash point.
 
-**Crash direction matters:**
-- The PR opt must crash; the baseline opt must NOT crash on the same IR.
-- If the PR opt transforms valid IR into invalid IR (verifier catches it), that IS a
-  valid crash regression — `hack_pr_opt` returns `crashed: true` in this case.
-  The baseline must produce valid output for the same input.
+**3d. Test immediately.**
 
-Mutate existing tests from the diff, write new IR, try different opt_args, shuffle
-operands, change types, add/remove flags.
+Run `hack_pr_opt(ir, opt_args)`.  Interpret the result:
+- **Real crash** (stderr has `Assertion`, `SIGABRT`, `SIGSEGV`, stack trace) → go to step 4 (verify).
+- **Verifier rejection of your IR** (stderr has `error:`, `does not dominate`, `input module is broken`) → fix your IR, don't submit this.
+- **No crash** → think about WHY the condition wasn't triggered.  Was the guard stronger than you thought?  Did another pass fold away the pattern first?  Use this insight to decide what to read next.
 
-**Width-dependent constants**: when you change the bitwidth of a test case, update
-ALL constants that depend on the bitwidth according to the source code's formula.
-Do NOT hardcode a constant from a different bitwidth.
+**3e. Loop — read the next function based on the result.**
 
-You may read additional source files during this step if needed to verify a
-crash condition — but do NOT return to annotation.  Build IR and test it now.
+If the test didn't crash, move to another changed function or a helper that the
+current function calls.  Do NOT re-read the same function — the result already told
+you it's not the trigger.  If you've tested every plausible crash point in the patch,
+stop and report no bug.
 
-### 6. Verify locally (mandatory)
+### 4. Verify the crash locally (mandatory)
 
 **Before submitting, you MUST confirm the crash locally:**
 
@@ -217,10 +208,10 @@ If the PR opt does not crash, refine the IR or try different `opt_args`.
 If the baseline opt also crashes, this is not a regression — find a different candidate.
 Only proceed to submit when both checks pass locally.
 
-### 7. Submit
+### 5. Submit
 
 Call `hack_submit_crash(ir, opt_args, description)`.  You should have already
-confirmed the crash locally (step 6).  If the server rejects your submission,
+confirmed the crash locally (step 4).  If the server rejects your submission,
 read the rejection reason carefully:
 
 - **"baseline also crashes"** — the bug is pre-existing, not a regression.
