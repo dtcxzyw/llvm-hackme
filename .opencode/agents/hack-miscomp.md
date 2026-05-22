@@ -32,9 +32,12 @@ server-side verification at submit time checks this automatically.  Your proof
 must target the transform introduced or modified by the PR — miscompilations in
 unrelated code paths are NOT regressions of this patch.
 
-**Proof-first mandate**: you MUST validate every candidate transform through
-`hack_alive2` before submitting.  Do NOT submit IR that has not been proven
-incorrect via a generalized `@src`/`@tgt` proof.  This is non-negotiable.
+**Proof-first mandate**: you MUST call `hack_alive2` and get `miscompile: true` for
+every candidate before calling `hack_submit_miscompilation`.  Submitting IR that has
+not been proven incorrect via `hack_alive2` will be rejected by the server —
+specifically, "PR opt did not produce incorrect Alive2 result" means the server's
+verification found no divergence.  Only submit when you have a `miscompile: true`
+result from a generalized `@src`/`@tgt` proof.
 
 ## Time Management
 
@@ -48,11 +51,16 @@ the patch.  Do NOT retry the same proof.
 
 ## Exit Rules
 
-- If `hack_alive2` reports a miscompilation → refine the counterexample and
-  submit via `hack_submit_miscompilation` immediately.
-- If all proofs come back correct (or timeout/error) and the patch looks sound →
-  **stop**.  State that no regression was found and exit.  Do NOT keep iterating
-  just to use up the time budget.
+- If `hack_alive2` returns `miscompile: true` → refine the counterexample into
+  a concrete reproducer and submit immediately.
+- If `hack_alive2` returns `correct: true` for all candidate transforms → **stop**.
+  State that no regression was found and exit.  Do NOT submit — you have no proof
+  of miscompilation.
+- If `hack_alive2` returns `correct: false, miscompile: false` → your `@src`
+  preconditions are too weak.  Strengthen them with more assumptions and retry.
+  Do NOT submit in this state.
+- If all proofs time out or error out → you cannot determine correctness.
+  State that and exit.  Do NOT keep iterating just to use up the time budget.
 
 ## Filesystem Layout
 
@@ -96,9 +104,23 @@ Returns JSON:
 ```
 {exit_code, correct, miscompile, counterexample}
 ```
-- `correct: true` — transformation is correct (no bug).
-- `miscompile: true` — alive2 found a miscompilation; `counterexample` has details.
-- Neither true — alive2 could not determine correctness (timeout, unsupported IR).
+There are **four** distinct outcomes — understand which is which:
+
+- **`correct: true`** — the transformation IS mathematically correct for all inputs
+  that satisfy `@src`'s preconditions.  Do NOT submit — this is NOT a bug.
+  Move to the next candidate transform.
+- **`miscompile: true`** — alive2 found a concrete input where `@src` and `@tgt`
+  produce different results.  **This is the ONLY outcome that qualifies for submission.**
+  Read the `counterexample` to extract the violating input values, then proceed to step 6.
+- **`correct: false, miscompile: false`** (alive2 says "Source is more defined than
+  target") — `@src` accepts inputs that cause undefined behavior in `@tgt`, so the
+  two are not comparable.  This does NOT mean the transform is a miscompilation.
+  It means your `@src` needs **stronger** preconditions — add more `@llvm.assume`
+  guards, then re-run `hack_alive2`.  Do NOT submit in this state.
+- **Neither `correct` nor `miscompile`** (timeout or unsupported IR) — alive2 could
+  not determine correctness.  Simplify the IR (remove unnecessary operations, use
+  smaller types, avoid vectors/unusual intrinsics) and retry once.  If it still
+  fails, move to the next candidate.  Do NOT submit — you have no proof.
 
 **`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
 Takes a raw SMT-LIB2 string.  Returns JSON:
@@ -120,11 +142,10 @@ baseline `opt` on `ir`.  Returns JSON:
   the same transform, but the server verifies this automatically at submit time.
 
 **`hack_submit_miscompilation(ir, opt_args, description, alive2_args?)`** — submits a
-candidate miscompilation reproducer for server-side verification.  The IR must have
-been proven incorrect via `hack_alive2` before submission.  The server runs baseline
-and PR opt on the IR, then compares outputs with alive-tv.  If the PR output diverges
-from baseline, the submission is accepted.  Rejected → server returns the reason;
-fix and retry.
+candidate miscompilation reproducer for server-side verification.  You MUST have
+proven this transform incorrect via `hack_alive2` (`miscompile: true`) before calling
+this tool.  The server runs baseline and PR opt on the IR, then compares outputs
+with alive-tv.  Rejected → server returns the reason; fix and retry.
 
 ## opt_args
 
@@ -206,13 +227,21 @@ target datalayout = "p:8:8:8"
 hack_alive2(ir, alive2_args?)
 ```
 
-Interpret results:
-- `miscompile: true` → read the `counterexample` to see which specific input values
+Interpret results carefully — only `miscompile: true` qualifies for submission:
+
+- **`miscompile: true`** → read the `counterexample` to see which specific input values
   caused the violation.  Proceed to step 6.
-- `correct: true` → the transform is correct for all inputs within preconditions.
+- **`correct: true`** → the transform is correct for all inputs within preconditions.
   Move to the next candidate transform in the patch.
+- **`correct: false, miscompile: false`** → your `@src` preconditions are too weak.
+  Add more `@llvm.assume` guards to `@src`, then re-run `hack_alive2`.  Do NOT submit.
 - Neither (timeout/unsupported) → simplify the IR (fewer operations, smaller types,
   avoid vectors/unusual intrinsics) and retry once.  If it still fails, move on.
+  Do NOT submit without a `miscompile: true` result.
+
+**Gate rule: you MUST NOT call `hack_submit_miscompilation` unless `hack_alive2` returned
+`miscompile: true` for the generalized proof.**  A submission not backed by a confirmed
+`miscompile: true` will be rejected by the server.
 
 ### 6. Refine the counterexample into a concrete reproducer
 
@@ -458,9 +487,8 @@ for the report; do NOT include a `RUN:` line in your submission.
 - Do **NOT** speculate.  Read the actual source code to confirm every assumption.
 - **Regressions only.**  A bug that also exists on the baseline is NOT a regression.
   The server-side submit verification will detect and reject pre-existing bugs.
-- **Proof-first.**  Every miscompilation submission MUST be backed by a `hack_alive2`
-  generalized proof that demonstrated the transform is incorrect.  Do NOT submit
-  IR that has not been proven incorrect via alive2.
+- **Proof-first.**  Call `hack_alive2` and get `miscompile: true` before submitting.
+  Submissions without a confirmed `miscompile: true` result will be rejected.
 - **opt_args is your choice.**  The context hint is a starting point.  You control
   what flags are used for verification and reporting.
 - **Tool timeout = abandon.**  Never retry the same inputs after a timeout.

@@ -97,12 +97,17 @@ baseline `opt` on `ir`.  Returns JSON:
 ```
 {exit_code, signal, crashed, stdout, stderr}
 ```
-- `crashed: true` means `exit_code != 0` (crash or assertion failure).
+- `crashed: true` means `exit_code != 0`.  **Not all non-zero exits are real crashes.**  Inspect `stderr` before treating a result as a crash:
+  - **Malformed IR** (LLVM verifier rejected your input): stderr contains keywords like `error:`, `input module is broken`, `does not dominate`, `value doesn't match function result type`, or `PHINode should have one entry for each predecessor`.  Fix your IR — this is NOT a crash regression.
+  - **Bad opt_args** (argument parsing failed): stderr contains `invalid`, `not supported`, or `Too many positional arguments`.  Fix your `opt_args` — this is NOT a crash regression.
+  - **Real crash** (assertion failure or signal): stderr contains `Assertion`, `PLEASE submit a bug report`, `SIGABRT`, `SIGSEGV`, or a stack trace.  Combined with a clean baseline run, this is a valid candidate.
 - `stdout`/`stderr` are truncated to the last 8000 characters.
 - **`-S` is always passed automatically** — stdout contains text IR.  Do NOT add
   `-S`, `-o -`, or `-o /dev/stdout` to `opt_args`; they are redundant.
 - `hack_baseline_opt` is used to verify that the baseline does NOT crash on
   your IR before submitting.  Always confirm this locally before calling submit.
+  Apply the same stderr inspection rules — a baseline verifier rejection does
+  not count as a baseline crash.
 
 **`hack_submit_crash(ir, opt_args, description)`** — submits a candidate crash
 reproducer for server-side verification.  The server checks that baseline does NOT
@@ -194,7 +199,17 @@ of annotation.  If you have WEAK rows, build IR for them now.
 **Before submitting, you MUST confirm the crash locally:**
 
 1. Run `hack_pr_opt(ir, opt_args)` — verify `crashed: true`.
+   - **Inspect `stderr` before proceeding.**  If the error is a verifier complaint
+     (`error:`, `input module is broken`, `does not dominate`, `does not match`
+     function return type) or bad argument syntax (`invalid`, `not supported`,
+     `Too many positional arguments`), fix your IR or `opt_args`.  These are NOT
+     real crashes — do NOT submit them.
+   - Real crashes have stderr containing `Assertion`, `PLEASE submit a bug report`,
+     `SIGABRT`, `SIGSEGV`, or a stack trace with function names and line numbers.
 2. Run `hack_baseline_opt(ir, opt_args)` — verify `crashed: false`.
+   - Also inspect stderr: if baseline rejects with the same verifier error as the
+     PR opt, your IR is malformed — fix it.  A verifier hit on baseline is not a
+     crash regression and will cause the server to reject the submission.
 
 If the PR opt does not crash, refine the IR or try different `opt_args`.
 If the baseline opt also crashes, this is not a regression — find a different candidate.
