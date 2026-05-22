@@ -255,9 +255,8 @@ resulting in divergent outputs that alive-tv can detect.
 2. **Your IR must trigger the modified code.**  After refinement, the concrete
    reproducer must still exercise the transform introduced or modified by the PR.
    A miscompilation in an unrelated code path is NOT a regression of this patch.
-   Verify: does the refined IR, when run through `hack_pr_opt` with the right
-   `opt_args`, produce different output than `hack_baseline_opt`?  If both
-   produce identical output, the transform didn't fire — refine the IR.
+   If the refined IR produces the same output under both `hack_pr_opt` and the
+   original input, the transform didn't fire — refine the IR.
 
 Keep only the `@src` function — do NOT include `@tgt`.  The server runs baseline
 and PR opt on your IR, then compares the outputs with alive-tv.

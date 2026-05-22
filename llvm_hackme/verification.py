@@ -313,7 +313,12 @@ async def _verify_regression_crash(
         memory_limit_bytes=memory_limit_bytes,
     )
     if baseline_crash is not None:
-        reason = "Baseline opt also crashes — not a PR regression"
+        last_lines = baseline_crash.stacktrace.strip().split("\n")[-3:]
+        tail = " | ".join(last_lines)[:400]
+        reason = (
+            "Baseline opt also crashes — not a PR regression. "
+            "Baseline crash output tail: " + tail
+        )
         LOGGER.warning(reason)
         return None, reason
 
@@ -324,7 +329,26 @@ async def _verify_regression_crash(
         memory_limit_bytes=memory_limit_bytes,
     )
     if pr_crash is None:
-        reason = "PR opt did not crash during re-verification"
+        # Check if IR is even valid by running opt on it directly
+        verify_result = await check_crash(
+            toolchain.pr_opt,
+            ir_content,
+            [],
+            memory_limit_bytes=memory_limit_bytes,
+        )
+        if verify_result is not None:
+            last_lines = verify_result.stacktrace.strip().split("\n")[-5:]
+            tail = " | ".join(last_lines)[:500]
+            reason = (
+                "PR opt did not crash — your IR is not valid LLVM. "
+                "Fix the IR.  Verifier error: " + tail
+            )
+        else:
+            reason = (
+                "PR opt did not crash — opt exited normally. "
+                "The modified code was either not reached or handled your IR "
+                "safely.  Try different IR that exercises the modified code path."
+            )
         LOGGER.warning(reason)
         return None, reason
 
@@ -369,7 +393,12 @@ async def _verify_regression_miscompilation(
         alive2_extra_args=alive2_extra_args,
     )
     if baseline_mis is not None:
-        reason = "Baseline also has Alive2 issues — not a PR regression"
+        last_lines = baseline_mis.alive2_output.strip().split("\n")[:5]
+        tail = " | ".join(last_lines)[:400]
+        reason = (
+            "Baseline already produces Alive2 issues — not a PR regression. "
+            "Baseline alive2 output: " + tail
+        )
         LOGGER.warning(reason)
         return None, reason
 
@@ -383,9 +412,32 @@ async def _verify_regression_miscompilation(
     )
     if pr_mis is None or is_alive2_approximation(pr_mis):
         if pr_mis is not None:
-            reason = "Alive2 approximation — not a confirmed miscompilation"
+            reason = (
+                "Alive2 approximation — alive2 could not fully verify the outputs, "
+                "so this is not a confirmed miscompilation.  Simplify your IR."
+            )
         else:
-            reason = "PR opt did not produce incorrect Alive2 result"
+            # Check if IR is valid
+            verify_result = await check_crash(
+                toolchain.pr_opt,
+                ir_content,
+                [],
+                memory_limit_bytes=memory_limit_bytes,
+            )
+            if verify_result is not None:
+                last_lines = verify_result.stacktrace.strip().split("\n")[-5:]
+                tail = " | ".join(last_lines)[:500]
+                reason = (
+                    "PR opt did not produce incorrect Alive2 result — your IR is "
+                    "not valid LLVM.  Fix the IR.  Error: " + tail
+                )
+            else:
+                reason = (
+                    "PR opt did not produce incorrect Alive2 result — "
+                    "baseline and PR produced equivalent outputs. "
+                    "The transform is either correct or your IR does not exercise "
+                    "it.  Try different IR or check the counterexample values."
+                )
         LOGGER.warning(reason)
         return None, reason
 
