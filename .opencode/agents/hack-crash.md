@@ -35,16 +35,16 @@ code is NOT a regression.
 
 ## Time Management
 
-You have a limited time budget.  Steps 2-4 (patch diff → source reads → annotation)
-are your **analysis phase**.  Output the annotation table, then move to step 5
-(construct IR).  If you cannot trigger a crash for any WEAK row, state that and stop.
+You have a limited time budget.  Steps 2-3 are your **analysis phase** — read only what you need
+to find crash points.  Then immediately move to step 4 (construct IR) and step 5 (test it).
+If you cannot trigger a crash for any crash point, state that and stop.
 
 ## Exit Rules
 
 - If you find a credible crash → verify it locally, then submit it.
-- If the patch looks crash-safe after thorough analysis and no WEAK row leads to
-  a crash → **stop**.  State that no regression was found and exit.
-  Do NOT keep iterating just to use up the time budget.
+- If the patch looks crash-safe after testing all identified crash points → **stop**.
+  State that no regression was found and exit.  Do NOT keep iterating just to use up
+  the time budget.
 
 ## Filesystem Layout
 
@@ -86,7 +86,7 @@ Takes a raw SMT-LIB2 string.  Returns JSON:
 ```
 Use `sat` to get a counterexample model from the `output` field.
 
-When you identify a WEAK precondition that depends on operand values (e.g., an
+When a crash point involves a numeric constraint (e.g., an
 `APInt(32, X)` that asserts `X.getBitWidth() <= 64`), encode the constraint as
 an SMT-LIB2 formula and use `hack_z3` to find concrete values that violate it.
 This is especially useful for bit-width mismatches (heuristic #2), where you need
@@ -152,47 +152,68 @@ For each changed function, `read` the source file in both `llvm-project/`
 any referenced declarations (headers, base classes, helper utilities) needed
 to understand preconditions and invariants.
 
-### 4. Output a Hoare annotation table — MUST include this table
+### 4. Identify every crash point
 
-For each distinct code path introduced or modified by the patch, fill in:
+Scan the changed code for every place where a crash can occur.  Focus on two classes:
 
+**A. Opt itself crashes** — `opt` hits an assertion, segmentation fault, or unhandled edge case
+while running the pass.  Look for:
+- `assert()` / `llvm_unreachable()` — what must be true for the assertion to hold?
+- `cast<T>(V)` / `dyn_cast<T>(V)` used unsafely — when could `V` not be-a `T`?
+- `APInt(N, X)` — does `X` always fit in `N` bits?  What type does the caller provide?
+- `getZExtValue()` / `getSExtValue()` — does the value always fit in 64 bits?
+- `I->getOperand(N)` — is the Nth operand guaranteed to exist?
+- `I->getParent()` / `I->getModule()` — is the instruction inserted yet?
+
+**B. PR opt produces illegal IR** — the transform creates or mutates an instruction in a way
+that violates the LLVM verifier, causing `opt` to exit non-zero with an `error:` in stderr.
+This IS a real crash for submission purposes.  Look for:
+- Dominance violations — operands not dominating their use point after the transform
+- Type mismatches — fold produces an instruction with the wrong return type
+- PHI node invariants — wrong number of incoming values, mismatched predecessor set
+- Flag/attribute contracts — flags left on an instruction whose operands violate them
+- Invalid constant expressions — APInt, ConstantExpr with impossible parameters
+
+For each crash point, write down the **concrete condition** that triggers it, e.g.:
 ```
-| Line | Pre-condition (must hold) | What if violated? | Verified? |
-|------|--------------------------|-------------------|-----------|
-| ...  | isa<Instruction>(V)      | crash (cast)      | depends on operand order → WEAK |
-| ...  | I != nullptr             | crash (deref)     | guarded by prior check → OK |
-| ...  | X->getType() == Y->getType() | assert (mismatched types) | not checked → WEAK |
+Line 2370: APInt::getOneBitSet(WiderWidth, C0->getZExtValue())
+  → crashes if getZExtValue() >= WiderWidth (setBit asserts BitPosition < BitWidth)
+  → happens when: shift amount C0 >= 2 * BitWidth, e.g. shl i8 %x, 16
 ```
 
-Cover every category from **Crash Heuristics** below.  If a heuristic does not
-apply to this patch, note it and move on.
+Do NOT create a Hoare annotation table or classify things as WEAK/OK.
+List only the crash points, each with its trigger condition.  Move on as soon as you
+have enough to construct IR — do NOT try to be exhaustive.
 
-When using `read`, **limit to one function at a time** — set `limit` to at most
-200 lines.  If you need to read two functions, make two separate calls.
+### 5. Construct a test case for a crash point
 
-Mark each row as **WEAK** (no clear guard, potential crash) or **OK**
-(explicitly checked or structural guarantee).
+Pick a crash point from step 4 and construct a minimal, self-contained LLVM IR module
+that triggers it.  Your IR must be **valid, well-formed LLVM IR** — it must pass the
+LLVM verifier on its own.  The crash should come from the PR opt either:
+- crashing internally (assertion, signal), or
+- producing IR that the verifier rejects (dominance violation, type mismatch, etc.)
 
-### 5. Construct a test case for the weakest precondition
+**Crash direction matters:**
+- The PR opt must crash; the baseline opt must NOT crash on the same IR.
+- If the PR opt transforms valid IR into invalid IR (verifier catches it), that IS a
+  valid crash regression — `hack_pr_opt` returns `crashed: true` in this case.
+  The baseline must produce valid output for the same input.
 
-From your annotation table, pick every row marked **WEAK**.  For each, construct a
-minimal, self-contained LLVM IR module that violates the precondition.  Mutate
-existing tests from the diff, write new IR, try different opt_args, shuffle
+Mutate existing tests from the diff, write new IR, try different opt_args, shuffle
 operands, change types, add/remove flags.
 
 **Width-dependent constants**: when you change the bitwidth of a test case, update
 ALL constants that depend on the bitwidth according to the source code's formula.
 Do NOT hardcode a constant from a different bitwidth.
 
-When a precondition is numeric (e.g., a bit-width constraint or value range),
+When a crash condition is numeric (e.g., a bit-width constraint or value range),
 use `hack_z3` to encode the violation condition as an SMT-LIB2 formula and solve
 for concrete counterexample values.  If `sat`, extract the violating operands
 from the model and hardcode them into your IR.  If `unsat` or `timeout`, the
-precondition may be unreachable — move to the next WEAK row.
+condition may be unreachable — pick the next crash point.
 
 You may read additional source files during this step if needed to verify a
-precondition or check an assertion condition — but do NOT start a second round
-of annotation.  If you have WEAK rows, build IR for them now.
+crash condition — but do NOT return to annotation.  Build IR and test it now.
 
 ### 6. Verify locally (mandatory)
 
