@@ -11,7 +11,7 @@ permission:
   hack_alive2: allow
   hack_baseline_opt: allow
   hack_pr_opt: allow
-  hack_z3: allow
+
   hack_submit_crash: deny
   hack_submit_miscompilation: allow
   external_directory:
@@ -121,13 +121,6 @@ There are **four** distinct outcomes — understand which is which:
   not determine correctness.  Simplify the IR (remove unnecessary operations, use
   smaller types, avoid vectors/unusual intrinsics) and retry once.  If it still
   fails, move to the next candidate.  Do NOT submit — you have no proof.
-
-**`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
-Takes a raw SMT-LIB2 string.  Returns JSON:
-```
-{sat, unsat, unknown, timeout, output}
-```
-Use `sat` to get a counterexample model from the `output` field.
 
 **`hack_pr_opt(ir, opt_args)`** / **`hack_baseline_opt(ir, opt_args)`** — run the PR or
 baseline `opt` on `ir`.  Returns JSON:

@@ -10,7 +10,7 @@ permission:
   todowrite: allow
   hack_baseline_opt: allow
   hack_pr_opt: allow
-  hack_z3: allow
+
   hack_alive2: deny
   hack_submit_miscompilation: deny
   hack_submit_crash: allow
@@ -78,19 +78,6 @@ tools are available:
 All hack tools accept IR as a **string** (the full LLVM IR text).  Do NOT
 pass file paths — write the IR text directly.  Tools create temp files internally
 and clean them up automatically.
-
-**`hack_z3(smtlib2)`** — runs Z3 with 4 GB memory and 30 s timeout.
-Takes a raw SMT-LIB2 string.  Returns JSON:
-```
-{sat, unsat, unknown, timeout, output}
-```
-Use `sat` to get a counterexample model from the `output` field.
-
-When a crash point involves a numeric constraint (e.g., an
-`APInt(32, X)` that asserts `X.getBitWidth() <= 64`), encode the constraint as
-an SMT-LIB2 formula and use `hack_z3` to find concrete values that violate it.
-This is especially useful for bit-width mismatches (heuristic #2), where you need
-to find an operand type that breaks a hardcoded width assumption.
 
 **`hack_pr_opt(ir, opt_args)`** / **`hack_baseline_opt(ir, opt_args)`** — run the PR or
 baseline `opt` on `ir`.  Returns JSON:
@@ -205,12 +192,6 @@ operands, change types, add/remove flags.
 **Width-dependent constants**: when you change the bitwidth of a test case, update
 ALL constants that depend on the bitwidth according to the source code's formula.
 Do NOT hardcode a constant from a different bitwidth.
-
-When a crash condition is numeric (e.g., a bit-width constraint or value range),
-use `hack_z3` to encode the violation condition as an SMT-LIB2 formula and solve
-for concrete counterexample values.  If `sat`, extract the violating operands
-from the model and hardcode them into your IR.  If `unsat` or `timeout`, the
-condition may be unreachable — pick the next crash point.
 
 You may read additional source files during this step if needed to verify a
 crash condition — but do NOT return to annotation.  Build IR and test it now.
