@@ -532,6 +532,8 @@ class HackmeService:
                 config.hack_model,
                 "--format",
                 "json",
+                "--variant",
+                "max",
                 "--thinking",
                 hack_prompt,
                 env={
