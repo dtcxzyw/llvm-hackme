@@ -232,6 +232,21 @@ def _validate_ir_forbidden_flags(ir_content: str) -> str | None:
     return None
 
 
+_DEFINE_RE = re.compile(r"^\s*define\b", re.MULTILINE)
+
+
+def _validate_ir_single_function(ir_content: str) -> str | None:
+    count = len(_DEFINE_RE.findall(ir_content))
+    if count == 0:
+        return "No function definition found in IR — at least one define is required"
+    if count > 1:
+        return (
+            f"Found {count} function definitions — only 1 define is allowed. "
+            "Extract a single function."
+        )
+    return None
+
+
 def _validate_ir_no_undef(ir_content: str) -> str | None:
     if " undef" in ir_content:
         return "IR contains ' undef' — undef values are not allowed in submissions"
@@ -380,6 +395,11 @@ async def _verify_regression_miscompilation(
         return None, reject
 
     reject = _validate_ir_no_undef(ir_content)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
+
+    reject = _validate_ir_single_function(ir_content)
     if reject:
         LOGGER.warning(reject)
         return None, reject

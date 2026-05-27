@@ -54,7 +54,7 @@ class TestConfigFromEnv:
         assert config.scan_overlap_seconds == 300
         assert config.debounce_seconds == 300
         assert config.baseline_update_interval_seconds == 3600
-        assert config.fuzz_budget_seconds == 600
+        assert config.fuzz_budget_seconds == 120
         assert config.max_patch_chars == 200_000
         assert config.opt_memory_limit_bytes == 1024 * 1024 * 1024
 
