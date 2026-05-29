@@ -15,6 +15,7 @@ _TEST_KEYWORDS: list[tuple[str, str]] = [
     ("llvm/test/Transforms/NewGVN", "newgvn"),
     ("llvm/test/Transforms/Reassociate", "reassociate"),
     ("llvm/test/Transforms/SCCP", "sccp"),
+    ("llvm/test/Transforms/SROA", "sroa"),
     (
         "llvm/test/Transforms/CorrelatedValuePropagation",
         "correlated-propagation",
@@ -75,6 +76,7 @@ _SOURCE_KEYWORDS: list[tuple[str, str]] = [
     ("llvm/lib/Transforms/Scalar/NewGVN", "newgvn"),
     ("llvm/lib/Transforms/Scalar/Reassociate", "reassociate"),
     ("llvm/lib/Transforms/Scalar/SCCP", "sccp"),
+    ("llvm/lib/Transforms/Scalar/SROA", "sroa"),
     (
         "llvm/lib/Transforms/Scalar/CorrelatedValuePropagation",
         "correlated-propagation",
