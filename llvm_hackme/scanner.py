@@ -55,9 +55,6 @@ class PullRequestScanner:
             ):
                 continue
 
-            self.state.record_pr_update(
-                pr.number, head_sha=pr.head_sha, patch_sha256=patch_sha256
-            )
             updates.append(PullRequestUpdate(pr, patch, patch_sha256))
 
         if newest_seen is not None:

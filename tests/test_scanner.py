@@ -56,9 +56,7 @@ class TestScanner:
         assert updates[0].patch == "diff --git a/test\n+foo\n"
 
         stored = mock_state.get_pull_state(1)
-        assert stored.head_sha == "sha1"
-        assert stored.patch_sha256 is not None
-        assert len(stored.patch_sha256) == 64
+        assert stored.head_sha is None
 
     @pytest.mark.asyncio
     async def test_scan_filters_non_relevant(

@@ -134,6 +134,11 @@ class HackmeService:
                 "Cancelled existing task for PR #%s (new update arrived)", pr_number
             )
 
+        self._state.record_pr_update(
+            pr_number,
+            head_sha=update.pr.head_sha,
+            patch_sha256=update.patch_sha256,
+        )
         task = asyncio.create_task(self._handle_pr_update(update))
         self._pr_tasks[pr_number] = task
 
@@ -155,9 +160,6 @@ class HackmeService:
             LOGGER.exception("Failed to fetch patch for PR #%s", pr_number)
             return
         patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
-        self._state.record_pr_update(
-            pr_number, head_sha=pr.head_sha, patch_sha256=patch_sha256
-        )
         update = PullRequestUpdate(pr, patch, patch_sha256)
         self._schedule_pr_task(update)
         LOGGER.info("Manually enqueued PR #%s", pr_number)
@@ -195,10 +197,6 @@ class HackmeService:
         new_update = PullRequestUpdate(
             pr=new_pr, patch=patch, patch_sha256=patch_sha256
         )
-        # NOTE: state is intentionally not updated here via record_pr_update().
-        # The enqueued task will call mark_processed() on completion, and the
-        # next scanner cycle will naturally pick up the new head_sha.  Updating
-        # the DB here would risk overwriting a concurrently-set processed_at.
         self._schedule_pr_task(new_update)
         return True
 
