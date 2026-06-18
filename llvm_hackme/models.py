@@ -12,6 +12,11 @@ class BugKind(str, Enum):
     MISCOMPILATION = "miscompilation"
 
 
+class BugSource(str, Enum):
+    FUZZER = "fuzzer"
+    AGENT = "agent"
+
+
 class CommentState(str, Enum):
     BUG_FOUND = "bug_found"
     STILL_REPRODUCES = "still_reproduces"
@@ -53,6 +58,7 @@ class Reproducer:
     baseline_revision: str
     pr_head_sha: str
     patch_sha256: str
+    source: BugSource | None = None
     stacktrace: str | None = None
     alive2_counterexample: str | None = None
     alive2_args: str | None = None
@@ -60,7 +66,7 @@ class Reproducer:
     source_content: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "kind": self.kind.value,
             "source_path": str(self.source_path),
             "command": self.command,
@@ -73,6 +79,9 @@ class Reproducer:
             "opt_output": self.opt_output,
             "source_content": self.source_content,
         }
+        if self.source is not None:
+            result["source"] = self.source.value
+        return result
 
     @classmethod
     def from_json(cls, payload: dict[str, Any]) -> Reproducer:
@@ -81,6 +90,13 @@ class Reproducer:
             kind = BugKind(kind_raw)
         except ValueError:
             kind = BugKind.CRASH
+        source_raw = payload.get("source", "")
+        source: BugSource | None = None
+        if source_raw:
+            try:
+                source = BugSource(source_raw)
+            except ValueError:
+                source = None
         return cls(
             kind=kind,
             source_path=Path(str(payload.get("source_path", "."))),
@@ -88,6 +104,7 @@ class Reproducer:
             baseline_revision=str(payload.get("baseline_revision", "")),
             pr_head_sha=str(payload.get("pr_head_sha", "")),
             patch_sha256=str(payload.get("patch_sha256", "")),
+            source=source,
             stacktrace=payload.get("stacktrace"),
             alive2_counterexample=payload.get("alive2_counterexample"),
             alive2_args=payload.get("alive2_args"),

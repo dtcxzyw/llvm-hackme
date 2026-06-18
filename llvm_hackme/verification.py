@@ -375,6 +375,7 @@ async def _verify_regression_crash(
         baseline_revision=reproducer.baseline_revision,
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
+        source=reproducer.source,
         stacktrace=pr_crash.stacktrace,
         source_content=_strip_intrinsic_declares(ir_content),
     ), ""
@@ -469,6 +470,7 @@ async def _verify_regression_miscompilation(
         baseline_revision=reproducer.baseline_revision,
         pr_head_sha=reproducer.pr_head_sha,
         patch_sha256=reproducer.patch_sha256,
+        source=reproducer.source,
         alive2_counterexample=pr_mis.alive2_output,
         alive2_args=pr_mis.alive2_args,
         opt_output=pr_mis.opt_output,

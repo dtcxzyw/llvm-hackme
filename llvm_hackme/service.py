@@ -25,7 +25,13 @@ from llvm_hackme.fuzzer import FuzzRunner
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.llm_review import OpenAIPatchReviewer
 from llvm_hackme.log_render import render_opencode_log
-from llvm_hackme.models import BugKind, PullRequest, PullRequestUpdate, Reproducer
+from llvm_hackme.models import (
+    BugKind,
+    BugSource,
+    PullRequest,
+    PullRequestUpdate,
+    Reproducer,
+)
 from llvm_hackme.passes import guess_pass_name
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
@@ -877,6 +883,7 @@ async def _hack_verify(
         baseline_revision=toolchain.baseline_revision,
         pr_head_sha=update.pr.head_sha,
         patch_sha256=update.patch_sha256,
+        source=BugSource.AGENT,
         source_content=ir_text,
     )
 

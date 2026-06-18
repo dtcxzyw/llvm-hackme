@@ -19,7 +19,7 @@ from llvm_hackme.commands import (
     run_command,
 )
 from llvm_hackme.config import Config
-from llvm_hackme.models import BugKind, Reproducer
+from llvm_hackme.models import BugKind, BugSource, Reproducer
 from llvm_hackme.passes import guess_pass_name
 
 LOGGER = logging.getLogger(__name__)
@@ -349,6 +349,7 @@ def _run_fuzz_iteration(ctx: _WorkerContext, idx: int) -> Reproducer | None:
             baseline_revision=ctx.baseline_revision,
             pr_head_sha=ctx.pr_head_sha,
             patch_sha256=ctx.patch_sha256,
+            source=BugSource.FUZZER,
             stacktrace=stacktrace,
             source_content=_read_content(source_path),
         )
@@ -418,6 +419,7 @@ def _run_fuzz_iteration(ctx: _WorkerContext, idx: int) -> Reproducer | None:
             baseline_revision=ctx.baseline_revision,
             pr_head_sha=ctx.pr_head_sha,
             patch_sha256=ctx.patch_sha256,
+            source=BugSource.FUZZER,
             alive2_counterexample=combined,
             source_content=_read_content(source_path),
         )
