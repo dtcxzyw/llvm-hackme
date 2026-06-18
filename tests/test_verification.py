@@ -205,7 +205,7 @@ class TestVerifyReproducer:
                 reproducer, toolchain, ["-passes=instcombine"]
             )
         assert result is None
-        assert reason == "Baseline opt also crashes — not a PR regression"
+        assert reason.startswith("Baseline opt also crashes — not a PR regression.")
         mock_check.assert_called_once()  # only baseline checked
 
     @pytest.mark.asyncio
