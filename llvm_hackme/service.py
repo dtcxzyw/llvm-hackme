@@ -661,7 +661,7 @@ class HackmeService:
             return
         try:
             await self._status_callback(
-                pr.number, pr.title, pr.html_url, status, pr.updated_at
+                pr.number, pr.title, pr.html_url, status, datetime.now(timezone.utc)
             )
         except Exception:
             LOGGER.warning("Status callback failed", exc_info=True)
