@@ -167,7 +167,7 @@ class GitHubClient:
         )
 
     async def list_recent_open_pull_requests(
-        self, watermark: datetime | None, overlap_seconds: int
+        self, watermark: datetime | None, overlap_seconds: int, max_results: int = 50
     ) -> tuple[list[PullRequest], datetime | None]:
         cutoff = (
             watermark - timedelta(seconds=overlap_seconds)
@@ -209,6 +209,9 @@ class GitHubClient:
                 if _should_skip_by_labels(pr):
                     continue
                 prs.append(pr)
+                if len(prs) >= max_results:
+                    stop = True
+                    break
             if stop or "next" not in _parse_link_relations(response.headers):
                 break
             page += 1

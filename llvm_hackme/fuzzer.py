@@ -239,7 +239,8 @@ class FuzzRunner:
 
         result: Reproducer | None = None
 
-        with ProcessPoolExecutor(max_workers=processes) as pool:
+        pool = ProcessPoolExecutor(max_workers=processes)
+        try:
             while time.monotonic() < deadline and result is None:
                 batch_end = idx + files_per_batch
                 futures: dict[Future, int] = {}
@@ -259,11 +260,12 @@ class FuzzRunner:
                         continue
                     if reproducer is not None:
                         result = reproducer
-                        pool.shutdown(wait=False, cancel_futures=True)
                         break
 
                 if time.monotonic() >= deadline:
                     break
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         if result is not None:
             return FuzzResult(reproducer=result, mutation_count=idx)

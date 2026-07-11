@@ -46,7 +46,7 @@ class TestScanner:
         mock_github.get_pull_patch = AsyncMock(return_value="diff --git a/test\n+foo\n")
 
         scanner = PullRequestScanner(
-            MagicMock(scan_overlap_seconds=300),
+            MagicMock(scan_overlap_seconds=300, scan_max_results=50),
             mock_state,
             mock_github,
         )
@@ -79,7 +79,7 @@ class TestScanner:
         )
 
         scanner = PullRequestScanner(
-            MagicMock(scan_overlap_seconds=300),
+            MagicMock(scan_overlap_seconds=300, scan_max_results=50),
             mock_state,
             mock_github,
         )
@@ -107,7 +107,7 @@ class TestScanner:
         )
 
         scanner = PullRequestScanner(
-            MagicMock(scan_overlap_seconds=300),
+            MagicMock(scan_overlap_seconds=300, scan_max_results=50),
             mock_state,
             mock_github,
         )
@@ -142,7 +142,7 @@ class TestScanner:
         mock_state.mark_processed(3)
 
         scanner = PullRequestScanner(
-            MagicMock(scan_overlap_seconds=300),
+            MagicMock(scan_overlap_seconds=300, scan_max_results=50),
             mock_state,
             mock_github,
         )
@@ -176,7 +176,7 @@ class TestScanner:
         mock_state.record_pr_update(4, head_sha="sha4", patch_sha256=patch_sha)
 
         scanner = PullRequestScanner(
-            MagicMock(scan_overlap_seconds=300),
+            MagicMock(scan_overlap_seconds=300, scan_max_results=50),
             mock_state,
             mock_github,
         )

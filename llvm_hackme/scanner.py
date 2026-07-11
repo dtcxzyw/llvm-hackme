@@ -22,7 +22,7 @@ class PullRequestScanner:
     async def scan_once(self) -> list[PullRequestUpdate]:
         watermark = self.state.get_scan_watermark()
         prs, newest_seen = await self.github.list_recent_open_pull_requests(
-            watermark, self.config.scan_overlap_seconds
+            watermark, self.config.scan_overlap_seconds, self.config.scan_max_results
         )
         updates: list[PullRequestUpdate] = []
         for pr in prs:
