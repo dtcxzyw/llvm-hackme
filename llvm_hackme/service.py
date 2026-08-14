@@ -79,6 +79,7 @@ class HackmeService:
         self._build_lock = asyncio.Lock()
         self._pr_tasks: dict[int, asyncio.Task[object]] = {}
         self._pr_in_build: set[int] = set()
+        self._hack_tasks: dict[int, set[asyncio.Task[object]]] = {}
         self._service_login = service_login
         self._status_callback = status_callback
         self.baseline_revision: str | None = None
@@ -124,21 +125,39 @@ class HackmeService:
         for update in updates:
             self._schedule_pr_task(update)
 
-    def _schedule_pr_task(self, update: PullRequestUpdate) -> None:
+    def _schedule_pr_task(
+        self, update: PullRequestUpdate, *, force: bool = False
+    ) -> None:
         pr_number = update.pr.number
         existing = self._pr_tasks.pop(pr_number, None)
         if existing is not None and not existing.done():
-            if pr_number in self._pr_in_build:
+            hack_tasks = self._hack_tasks.get(pr_number)
+            if hack_tasks:
+                LOGGER.info(
+                    "PR #%s is in hack phase, killing %d hack agent(s) for new update",
+                    pr_number,
+                    len(hack_tasks),
+                )
+                for task in tuple(hack_tasks):
+                    task.cancel()
+                existing.cancel()
+                LOGGER.info(
+                    "Cancelled existing task for PR #%s (new update arrived)",
+                    pr_number,
+                )
+            elif pr_number in self._pr_in_build and not force:
                 LOGGER.info(
                     "PR #%s is currently in build phase, skipping cancel",
                     pr_number,
                 )
                 self._pr_tasks[pr_number] = existing
                 return
-            existing.cancel()
-            LOGGER.info(
-                "Cancelled existing task for PR #%s (new update arrived)", pr_number
-            )
+            else:
+                existing.cancel()
+                LOGGER.info(
+                    "Cancelled existing task for PR #%s (new update arrived)",
+                    pr_number,
+                )
 
         self._state.record_pr_update(
             pr_number,
@@ -171,7 +190,12 @@ class HackmeService:
         LOGGER.info("Manually enqueued PR #%s", pr_number)
 
     async def _check_pr_stale(
-        self, pr_number: int, processed_sha: str, update: PullRequestUpdate
+        self,
+        pr_number: int,
+        processed_sha: str,
+        update: PullRequestUpdate,
+        *,
+        force: bool = False,
     ) -> bool:
         try:
             current_sha = await self._github.get_pull_head_sha(pr_number)
@@ -203,7 +227,7 @@ class HackmeService:
         new_update = PullRequestUpdate(
             pr=new_pr, patch=patch, patch_sha256=patch_sha256
         )
-        self._schedule_pr_task(new_update)
+        self._schedule_pr_task(new_update, force=force)
         return True
 
     async def _handle_pr_update(self, update: PullRequestUpdate) -> None:
@@ -278,6 +302,11 @@ class HackmeService:
 
                     toolchain = self._builds.toolchain_paths(baseline_revision)
 
+                    if await self._check_pr_stale(
+                        pr_number, pr.head_sha, update, force=True
+                    ):
+                        return
+
                     await self._emit_status(pr, "fuzzing")
 
                     stored = self._state.get_pull_state(pr_number)
@@ -307,7 +336,7 @@ class HackmeService:
                             await self._emit_status(pr, "bug_found")
                             self._state.save_reproducer(pr_number, verified_existing)
                             if await self._check_pr_stale(
-                                pr_number, pr.head_sha, update
+                                pr_number, pr.head_sha, update, force=True
                             ):
                                 return
                             await report_result(
@@ -351,6 +380,10 @@ class HackmeService:
                                 verified = None
 
                     if verified is None:
+                        if await self._check_pr_stale(
+                            pr_number, pr.head_sha, update, force=True
+                        ):
+                            return
                         await self._emit_status(pr, "hacking")
                         verified, hack_submissions = await self._run_hack_agent(
                             update, toolchain, pass_name
@@ -460,38 +493,52 @@ class HackmeService:
             name="hack-miscomp",
         )
 
+        self._hack_tasks.setdefault(update.pr.number, set()).update(
+            [crash_task, miscomp_task]
+        )
+
         LOGGER.info(
             "Launching crash + miscomp hack agents for PR #%s", update.pr.number
         )
 
         all_submissions: list[dict] = []
 
-        done, pending = await asyncio.wait(
-            [crash_task, miscomp_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        try:
+            done, pending = await asyncio.wait(
+                [crash_task, miscomp_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
 
-        for task in done:
-            try:
-                reproducer, submissions = task.result()
-                all_submissions.extend(submissions)
-                if reproducer is not None:
-                    for p in pending:
-                        p.cancel()
-                    LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
-                    return reproducer, all_submissions
-            except Exception:
-                LOGGER.exception("Hack agent %s failed", task.get_name(), exc_info=True)
+            for task in done:
+                try:
+                    reproducer, submissions = task.result()
+                    all_submissions.extend(submissions)
+                    if reproducer is not None:
+                        for p in pending:
+                            p.cancel()
+                        LOGGER.info("Hack agent found bug for PR #%s", update.pr.number)
+                        return reproducer, all_submissions
+                except Exception:
+                    LOGGER.exception(
+                        "Hack agent %s failed", task.get_name(), exc_info=True
+                    )
 
-        remaining = await asyncio.gather(*pending, return_exceptions=True)
-        for result in remaining:
-            if isinstance(result, tuple):
-                _, submissions = result
-                all_submissions.extend(submissions)
-            elif isinstance(result, Exception):
-                LOGGER.exception("Hack agent failed", exc_info=result)
+            remaining = await asyncio.gather(*pending, return_exceptions=True)
+            for result in remaining:
+                if isinstance(result, tuple):
+                    _, submissions = result
+                    all_submissions.extend(submissions)
+                elif isinstance(result, Exception):
+                    LOGGER.exception("Hack agent failed", exc_info=result)
 
-        return None, all_submissions
+            return None, all_submissions
+        finally:
+            pending_tasks = self._hack_tasks.get(update.pr.number)
+            if pending_tasks:
+                pending_tasks.discard(crash_task)
+                pending_tasks.discard(miscomp_task)
+                if not pending_tasks:
+                    self._hack_tasks.pop(update.pr.number, None)
 
     async def _run_single_hack_agent(
         self,

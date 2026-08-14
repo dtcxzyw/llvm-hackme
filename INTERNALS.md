@@ -115,6 +115,13 @@ Each PR gets at most one llvm-hackme comment. Two layers enforce this:
 
 1. **Process-level** — `_schedule_pr_task()` ensures only one `asyncio.Task` per PR number exists at any moment (`_pr_tasks` dict). A new update for the same PR cancels the previous task before spawning the new one.
 
+   Cancellation distinguishes three phases:
+   - **Hack phase** (hack agents running): the running `hack-crash`/`hack-miscomp` sub-tasks are tracked in `_hack_tasks` (a per-PR set of `asyncio.Task`s). A new update kills the opencode agent processes first (each sub-task's `CancelledError` handler runs `proc.kill()`), then cancels the outer task, then spawns the new task immediately.
+   - **Build phase** (`_pr_in_build`): the update is dropped by default so a cmake build is not interrupted mid-flight; the fresh staleness checks (below) re-queue it right after the build completes.
+   - **Any other phase**: the running task is cancelled and replaced immediately.
+
+2. **Staleness re-checks** — `_check_pr_stale()` (GitHub head-SHA comparison) is now called at two extra points inside `_handle_pr_update()`, both with `force=True` so the re-queue bypasses the build-phase drop: right after the PR opt build finishes (before fuzzing) and after fuzzing (before launching hack agents). If the PR's head SHA changed while building/fuzzing, the run aborts and the new commit is processed instead of burning fuzz + hack agent budgets on a stale patch. The original end-of-run staleness check remains as a final guard.
+
 2. **DB/API recovery** — `report_result()` checks both the local DB (`stored.comment_id`) and the GitHub API (`find_llvm_hackme_comment()`) before deciding whether to create or update:
    - **Existing comment found on GitHub but `comment_id` missing from DB**: the DB row is recovered with `save_comment()`, then the comment is updated normally. No duplicate is created.
    - **No existing comment anywhere**: a new comment is created and its ID saved to the DB.
