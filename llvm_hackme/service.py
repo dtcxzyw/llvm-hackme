@@ -305,6 +305,9 @@ class HackmeService:
                     if await self._check_pr_stale(
                         pr_number, pr.head_sha, update, force=True
                     ):
+                        # A new task for the updated SHA is already scheduled;
+                        # do not mark this superseded run as processed.
+                        transient = True
                         return
 
                     await self._emit_status(pr, "fuzzing")
@@ -338,6 +341,7 @@ class HackmeService:
                             if await self._check_pr_stale(
                                 pr_number, pr.head_sha, update, force=True
                             ):
+                                transient = True
                                 return
                             await report_result(
                                 self._github,
@@ -383,6 +387,7 @@ class HackmeService:
                         if await self._check_pr_stale(
                             pr_number, pr.head_sha, update, force=True
                         ):
+                            transient = True
                             return
                         await self._emit_status(pr, "hacking")
                         verified, hack_submissions = await self._run_hack_agent(
@@ -397,7 +402,11 @@ class HackmeService:
             else:
                 await self._emit_status(pr, "passed")
 
-            if not (await self._check_pr_stale(pr_number, pr.head_sha, update)):
+            if await self._check_pr_stale(pr_number, pr.head_sha, update):
+                # A new task for the updated SHA is already scheduled; do not
+                # mark this superseded run as processed.
+                transient = True
+            else:
                 await report_result(
                     self._github,
                     self._state,

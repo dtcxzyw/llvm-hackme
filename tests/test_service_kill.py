@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from llvm_hackme.github import GitHubClient
@@ -124,3 +125,60 @@ async def test_hack_agent_registry_cleaned_up(tmp_path) -> None:
 
     assert result == (None, [])
     assert 1 not in service._hack_tasks
+
+
+async def test_stale_requeue_does_not_mark_processed() -> None:
+    """A run superseded by a new commit must not mark itself processed."""
+    pr = PullRequest(
+        number=1,
+        title="T",
+        author_login="user",
+        head_sha="oldsha",
+        updated_at=MagicMock(),
+        html_url="h",
+    )
+    update = PullRequestUpdate(pr=pr, patch="patch", patch_sha256="p")
+
+    service = _make_service()
+    service._state.get_pull_state.return_value = MagicMock(reproducer=None)
+    service._github.get_pull_head_sha = AsyncMock(return_value="newsha")
+    service._github.get_pull_patch = AsyncMock(return_value="newpatch")
+    service._reviewer.review = AsyncMock(return_value=MagicMock(accepted=True))
+    service._builds.prepare_pr_worktree = AsyncMock(return_value=("rev", True))
+    service._builds.build_pr_opt = AsyncMock()
+    toolchain = MagicMock()
+    toolchain.baseline_revision = "rev"
+    service._builds.toolchain_paths = MagicMock(return_value=toolchain)
+    service._run_hack_agent = AsyncMock(return_value=(None, []))
+
+    # The re-queued task (T2) must not complete during this test; block it
+    # at its fuzz phase so it can never reach mark_processed.
+    fuzz_gate = asyncio.Event()
+
+    async def gated_fuzz(*args: object, **kwargs: object) -> object:
+        await fuzz_gate.wait()
+        return MagicMock(reproducer=None, mutation_count=0)
+
+    service._fuzzer.run = gated_fuzz
+
+    with (
+        patch("llvm_hackme.service.guess_pass_name", return_value="instcombine"),
+        patch("llvm_hackme.service.set_command_log_path"),
+        patch("llvm_hackme.service.append_command_log_message"),
+    ):
+        t1 = asyncio.create_task(service._handle_pr_update(update))
+        service._pr_tasks[1] = t1
+        with contextlib.suppress(asyncio.CancelledError):
+            await t1
+        # The superseded run itself must not have marked the PR processed.
+        assert not service._state.mark_processed.called
+        assert not service._state.reset_retry.called
+        # T2 is the freshly re-queued task; cancel it so it never finishes.
+        t2 = service._pr_tasks.get(1)
+        if t2 is not None and t2 is not t1:
+            t2.cancel()
+            fuzz_gate.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t2
+        # Still not marked: the re-queued run never completed.
+        assert not service._state.mark_processed.called
