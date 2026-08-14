@@ -127,8 +127,15 @@ async def test_hack_agent_registry_cleaned_up(tmp_path) -> None:
     assert 1 not in service._hack_tasks
 
 
-async def test_stale_requeue_does_not_mark_processed() -> None:
-    """A run superseded by a new commit must not mark itself processed."""
+async def test_stale_requeue_does_not_mark_processed(tmp_path) -> None:
+    """A run superseded by a new commit must not mark itself processed.
+
+    The real `_handle_pr_update` runs: its post-build staleness check detects
+    the SHA change, re-queues via `_schedule_pr_task(force=True)` (which
+    cancels the running task), and the superseded run must not call
+    `mark_processed`.  The re-queued task is blocked at fuzz so it never
+    finishes and never marks the PR either.
+    """
     pr = PullRequest(
         number=1,
         title="T",
@@ -139,17 +146,33 @@ async def test_stale_requeue_does_not_mark_processed() -> None:
     )
     update = PullRequestUpdate(pr=pr, patch="patch", patch_sha256="p")
 
-    service = _make_service()
+    service = HackmeService.__new__(HackmeService)
+    service._config = MagicMock()
+    service._config.logs_dir = tmp_path
+    service._config.debounce_seconds = 0
+    service._state = MagicMock()
     service._state.get_pull_state.return_value = MagicMock(reproducer=None)
+    service._github = MagicMock(spec=GitHubClient)
     service._github.get_pull_head_sha = AsyncMock(return_value="newsha")
     service._github.get_pull_patch = AsyncMock(return_value="newpatch")
+    service._reviewer = MagicMock()
     service._reviewer.review = AsyncMock(return_value=MagicMock(accepted=True))
+    service._builds = MagicMock()
     service._builds.prepare_pr_worktree = AsyncMock(return_value=("rev", True))
     service._builds.build_pr_opt = AsyncMock()
     toolchain = MagicMock()
     toolchain.baseline_revision = "rev"
     service._builds.toolchain_paths = MagicMock(return_value=toolchain)
+    service._build_lock = asyncio.Lock()
+    service._pr_tasks = {}
+    service._pr_in_build = set()
+    service._hack_tasks = {}
+    service._service_login = "svc"
+    service._status_callback = None
+    service._maybe_backoff = AsyncMock()
+    service._fuzzer = MagicMock()
     service._run_hack_agent = AsyncMock(return_value=(None, []))
+    service._emit_status = AsyncMock()
 
     # The re-queued task (T2) must not complete during this test; block it
     # at its fuzz phase so it can never reach mark_processed.
@@ -169,7 +192,7 @@ async def test_stale_requeue_does_not_mark_processed() -> None:
         t1 = asyncio.create_task(service._handle_pr_update(update))
         service._pr_tasks[1] = t1
         with contextlib.suppress(asyncio.CancelledError):
-            await t1
+            await asyncio.wait_for(t1, timeout=5)
         # The superseded run itself must not have marked the PR processed.
         assert not service._state.mark_processed.called
         assert not service._state.reset_retry.called
@@ -179,6 +202,6 @@ async def test_stale_requeue_does_not_mark_processed() -> None:
             t2.cancel()
             fuzz_gate.set()
             with contextlib.suppress(asyncio.CancelledError):
-                await t2
+                await asyncio.wait_for(t2, timeout=5)
         # Still not marked: the re-queued run never completed.
         assert not service._state.mark_processed.called
