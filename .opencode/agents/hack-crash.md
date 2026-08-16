@@ -292,6 +292,9 @@ for the report; do NOT include a `RUN:` line in your submission.
 - **Verify locally, then submit.**  Confirm the crash with `hack_pr_opt` and
   `hack_baseline_opt` before submitting.  If the server rejects, the response
   will tell you why; fix it and retry.
+- **`@llvm.*` names are intrinsic-only.**  The server rejects any use of an
+  `@llvm.*` name outside a `declare` statement or as a call callee — never
+  define them as globals/constants or use them as data operands.
 
 ## Example
 

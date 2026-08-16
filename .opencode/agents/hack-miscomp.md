@@ -516,6 +516,9 @@ a `RUN:` header for the report; do NOT include a `RUN:` line in your submission.
 - **No `undef`.**  Never use the `undef` value as an operand.  The server rejects
   any IR containing the bare `undef` keyword (the literal token `undef`, not
   variable names like `%undef_var` that merely contain the substring "undef").
+- **`@llvm.*` names are intrinsic-only.**  The server rejects any use of an
+  `@llvm.*` name outside a `declare` statement or as a call callee — never
+  define them as globals/constants or use them as data operands.
 
 ## Example
 

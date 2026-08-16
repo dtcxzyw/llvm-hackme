@@ -253,6 +253,32 @@ def _validate_ir_no_undef(ir_content: str) -> str | None:
     return None
 
 
+_LLVM_INTRINSIC_RE = re.compile(r"@llvm\.[-\w.$]*")
+
+
+def _validate_ir_llvm_intrinsics(ir_content: str) -> str | None:
+    """`@llvm.*` names may only appear in `declare` statements or as call
+    callees — never as globals, constants, or data operands.
+    """
+    for line_no, line in enumerate(ir_content.split("\n"), start=1):
+        stripped = line.lstrip()
+        if stripped.startswith(";") or stripped.startswith("declare"):
+            continue
+        if stripped.startswith("define") and _LLVM_INTRINSIC_RE.search(line):
+            return (
+                f"Line {line_no}: defining a function named @llvm.* is forbidden — "
+                "intrinsics can only be declared or called"
+            )
+        for m in _LLVM_INTRINSIC_RE.finditer(line):
+            if line[m.end() : m.end() + 1] != "(":
+                return (
+                    f"Line {line_no}: @llvm.* may only be used as a declared "
+                    f"intrinsic or call callee, not as a global/constant "
+                    f"('{m.group(0)}')"
+                )
+    return None
+
+
 def _strip_intrinsic_declares(ir_content: str) -> str:
     """Remove `declare ... @llvm.*` lines so alive2 rejects unrecognised
     intrinsics instead of silently treating them as regular functions.
@@ -313,6 +339,10 @@ async def _verify_regression_crash(
     memory_limit_bytes: int | None = None,
 ) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
+    reject = _validate_ir_llvm_intrinsics(ir_content)
     if reject:
         LOGGER.warning(reject)
         return None, reject
@@ -391,6 +421,11 @@ async def _verify_regression_miscompilation(
     alive2_extra_args: list[str] | None = None,
 ) -> tuple[Reproducer | None, str]:
     reject = _validate_ir_forbidden_flags(ir_content)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
+
+    reject = _validate_ir_llvm_intrinsics(ir_content)
     if reject:
         LOGGER.warning(reject)
         return None, reject
