@@ -13,6 +13,7 @@ from llvm_hackme.verification import (
     CrashInfo,
     MiscompilationInfo,
     _validate_ir_llvm_intrinsics,
+    _validate_ir_vscale_target,
     check_crash,
     check_miscompilation,
     verify_reproducer,
@@ -190,6 +191,71 @@ class TestValidateIrLlvmIntrinsics:
         assert _validate_ir_llvm_intrinsics(ir) is None
 
 
+class TestValidateIrVscaleTarget:
+    VSCALE_AARCH64 = (
+        'target datalayout = "e-m:e-i64:64-n32:64-S128"\n'
+        'target triple = "aarch64-unknown-linux-gnu"\n'
+        "define <vscale x 2 x i32> @f(<vscale x 2 x i32> %x) {\n"
+        "  ret <vscale x 2 x i32> %x\n"
+        "}\n"
+    )
+
+    def test_allows_ir_without_vscale(self) -> None:
+        ir = "define i32 @f() { ret i32 0 }\n"
+        assert _validate_ir_vscale_target(ir, []) is None
+
+    def test_ignores_vscale_in_comments(self) -> None:
+        ir = "; uses vscale\n\ndefine i32 @f() { ret i32 0 }\n"
+        assert _validate_ir_vscale_target(ir, []) is None
+
+    def test_rejects_vscale_without_datalayout(self) -> None:
+        ir = self.VSCALE_AARCH64.split("\n", 1)[1]
+        reason = _validate_ir_vscale_target(ir, ["-mattr=sve2"])
+        assert reason is not None
+        assert "target datalayout" in reason
+
+    def test_rejects_vscale_without_triple(self) -> None:
+        ir = "\n".join(
+            line
+            for line in self.VSCALE_AARCH64.split("\n")
+            if "target triple" not in line
+        )
+        reason = _validate_ir_vscale_target(ir, ["-mattr=sve2"])
+        assert reason is not None
+        assert "target triple" in reason
+
+    def test_rejects_unsupported_triple(self) -> None:
+        ir = self.VSCALE_AARCH64.replace(
+            "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"
+        )
+        reason = _validate_ir_vscale_target(ir, [])
+        assert reason is not None
+        assert "x86_64" in reason
+        assert "aarch64" in reason
+
+    def test_rejects_aarch64_without_sve2(self) -> None:
+        reason = _validate_ir_vscale_target(self.VSCALE_AARCH64, [])
+        assert reason is not None
+        assert "-mattr=sve2" in reason
+
+    def test_allows_aarch64_with_sve2(self) -> None:
+        assert _validate_ir_vscale_target(self.VSCALE_AARCH64, ["-mattr=sve2"]) is None
+
+    def test_rejects_riscv64_without_plus_v(self) -> None:
+        ir = self.VSCALE_AARCH64.replace(
+            "aarch64-unknown-linux-gnu", "riscv64-unknown-linux-gnu"
+        )
+        reason = _validate_ir_vscale_target(ir, [])
+        assert reason is not None
+        assert "-mattr=+v" in reason
+
+    def test_allows_riscv64_with_plus_v(self) -> None:
+        ir = self.VSCALE_AARCH64.replace(
+            "aarch64-unknown-linux-gnu", "riscv64-unknown-linux-gnu"
+        )
+        assert _validate_ir_vscale_target(ir, ["-mattr=+v"]) is None
+
+
 class TestVerifyReproducer:
     @pytest.mark.asyncio
     async def test_verify_crash_regression(self) -> None:
@@ -293,6 +359,43 @@ class TestVerifyReproducer:
             )
         assert result is None
         assert "@llvm.foo" in reason
+        mock_check.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_verify_crash_rejects_vscale_without_mattr(self) -> None:
+        reproducer = Reproducer(
+            kind=BugKind.CRASH,
+            source_path=Path("test.ll"),
+            command=["opt", "-S", "test.ll"],
+            baseline_revision="rev",
+            pr_head_sha="sha",
+            patch_sha256="p2",
+            source_content=(
+                'target datalayout = "e-m:e-i64:64-n32:64-S128"\n'
+                'target triple = "aarch64-unknown-linux-gnu"\n'
+                "define <vscale x 2 x i32> @f() {"
+                " ret <vscale x 2 x i32> zeroinitializer }\n"
+            ),
+        )
+        toolchain = ToolchainPaths(
+            baseline_opt=Path("/opt/baseline/opt"),
+            pr_opt=Path("/opt/pr/opt"),
+            llvm_extract=Path("/opt/llvm-extract"),
+            merge=Path("/opt/merge"),
+            mutate=Path("/opt/mutate"),
+            alive_tv=Path("/opt/alive/tv"),
+            baseline_revision="rev",
+            llvm_reduce=Path("/opt/llvm-reduce"),
+        )
+
+        with patch(
+            "llvm_hackme.verification.check_crash", new_callable=AsyncMock
+        ) as mock_check:
+            result, reason = await verify_reproducer(
+                reproducer, toolchain, ["-passes=instcombine"]
+            )
+        assert result is None
+        assert "-mattr=sve2" in reason
         mock_check.assert_not_called()
 
     @pytest.mark.asyncio

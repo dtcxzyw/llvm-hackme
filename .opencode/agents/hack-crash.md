@@ -295,6 +295,12 @@ for the report; do NOT include a `RUN:` line in your submission.
 - **`@llvm.*` names are intrinsic-only.**  The server rejects any use of an
   `@llvm.*` name outside a `declare` statement or as a call callee — never
   define them as globals/constants or use them as data operands.
+- **`vscale` IR needs a scalable target.**  If your IR contains `vscale`
+  (scalable vector types or `vscale_range` attributes), you **must** specify
+  both `target datalayout` and `target triple`, and the triple must be
+  aarch64 or riscv64.  For aarch64, `opt_args` **must** include `-mattr=sve2`;
+  for riscv64, it **must** include `-mattr=+v`.  The server rejects submissions
+  that violate this rule.
 
 ## Example
 

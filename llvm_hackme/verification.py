@@ -253,6 +253,54 @@ def _validate_ir_no_undef(ir_content: str) -> str | None:
     return None
 
 
+_VSCALE_RE = re.compile(r"\bvscale\b")
+_TARGET_DATALAYOUT_RE = re.compile(r'^\s*target\s+datalayout\s*=\s*"', re.MULTILINE)
+_TARGET_TRIPLE_RE = re.compile(r'^\s*target\s+triple\s*=\s*"([^"]*)"', re.MULTILINE)
+
+
+def _validate_ir_vscale_target(ir_content: str, opt_args: list[str]) -> str | None:
+    """Scalable-vector (`vscale`) IR needs an explicit aarch64/riscv64 target
+    and the matching `-mattr` so opt actually enables the scalable ISA.
+    """
+    has_vscale = any(
+        not line.lstrip().startswith(";") and _VSCALE_RE.search(line)
+        for line in ir_content.split("\n")
+    )
+    if not has_vscale:
+        return None
+    if _TARGET_DATALAYOUT_RE.search(ir_content) is None:
+        return (
+            "IR uses 'vscale' but has no target datalayout — must specify "
+            'target datalayout = "..." and target triple = "aarch64-..." '
+            'or "riscv64-..."'
+        )
+    triple_m = _TARGET_TRIPLE_RE.search(ir_content)
+    if triple_m is None:
+        return (
+            "IR uses 'vscale' but has no target triple — target triple must "
+            'be "aarch64-..." or "riscv64-..."'
+        )
+    triple = triple_m.group(1)
+    if "aarch64" in triple:
+        if "-mattr=sve2" not in opt_args:
+            return (
+                "IR uses 'vscale' with an aarch64 target — opt_args must "
+                "include '-mattr=sve2'"
+            )
+        return None
+    if "riscv64" in triple:
+        if "-mattr=+v" not in opt_args:
+            return (
+                "IR uses 'vscale' with a riscv64 target — opt_args must "
+                "include '-mattr=+v'"
+            )
+        return None
+    return (
+        f"IR uses 'vscale' but target triple {triple!r} is neither aarch64 "
+        "nor riscv64 — set target triple to 'aarch64-...' or 'riscv64-...'"
+    )
+
+
 _LLVM_INTRINSIC_RE = re.compile(r"@llvm\.[-\w.$]*")
 
 
@@ -346,6 +394,10 @@ async def _verify_regression_crash(
     if reject:
         LOGGER.warning(reject)
         return None, reject
+    reject = _validate_ir_vscale_target(ir_content, opt_args)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
     # We intentionally allow 'undef' in crash IR — undef values can
     # trigger UB paths that lead to legitimate crashes.  This is
     # different from miscompilation verification, where 'undef' would
@@ -436,6 +488,11 @@ async def _verify_regression_miscompilation(
         return None, reject
 
     reject = _validate_ir_single_function(ir_content)
+    if reject:
+        LOGGER.warning(reject)
+        return None, reject
+
+    reject = _validate_ir_vscale_target(ir_content, opt_args)
     if reject:
         LOGGER.warning(reject)
         return None, reject
