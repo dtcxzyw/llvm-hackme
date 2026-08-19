@@ -288,6 +288,7 @@ dependencies = [
     { name = "openai" },
     { name = "tenacity" },
     { name = "textual" },
+    { name = "unidiff" },
 ]
 
 [package.dev-dependencies]
@@ -304,6 +305,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.99.0" },
     { name = "tenacity", specifier = ">=9.0.0" },
     { name = "textual", specifier = ">=1.0.0" },
+    { name = "unidiff", specifier = ">=1.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -839,6 +841,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/78/67/9a363818028526e2d4579334460df777115bdec1bb77c08f9db88f6389f2/uc_micro_py-2.0.0.tar.gz", hash = "sha256:c53691e495c8db60e16ffc4861a35469b0ba0821fe409a8a7a0a71864d33a811", size = 6611, upload-time = "2026-03-01T06:31:27.526Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/73/d21edf5b204d1467e06500080a50f79d49ef2b997c79123a536d4a17d97c/uc_micro_py-2.0.0-py3-none-any.whl", hash = "sha256:3603a3859af53e5a39bc7677713c78ea6589ff188d70f4fee165db88e22b242c", size = 6383, upload-time = "2026-03-01T06:31:26.257Z" },
+]
+
+[[package]]
+name = "unidiff"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/48/6ebfbda867e1a07bab3bbffe820e980bff8262c97ff77d1496a4fa15e711/unidiff-1.0.0.tar.gz", hash = "sha256:5e5d5cfab2dc98be819b74747ab7d9f5af8695369ec8710b93f9ab0f0ae6a449", size = 29365, upload-time = "2026-07-25T19:13:59.917Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/ca/860142913b2fee25c78b3af733054e248c488bd83cf6cfb97969e98e3bcf/unidiff-1.0.0-py3-none-any.whl", hash = "sha256:2e1fb4eebe2354a26a1f3d51efe2e5d504cae5764b98ed8bdbb4e7a000baff28", size = 18279, upload-time = "2026-07-25T19:13:58.797Z" },
 ]
 
 [[package]]

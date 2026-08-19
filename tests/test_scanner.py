@@ -135,11 +135,46 @@ class TestScanner:
         )
         mock_github.get_pull_patch = AsyncMock(return_value="patch-body")
 
-        import hashlib
+        from llvm_hackme.patch_hash import compute_patch_hash
 
-        patch_sha = hashlib.sha256(b"patch-body").hexdigest()
+        patch_sha = compute_patch_hash("patch-body")
         mock_state.record_pr_update(3, head_sha="sha3", patch_sha256=patch_sha)
         mock_state.mark_processed(3)
+
+        scanner = PullRequestScanner(
+            MagicMock(scan_overlap_seconds=300, scan_max_results=50),
+            mock_state,
+            mock_github,
+        )
+        updates = await scanner.scan_once()
+        assert len(updates) == 0
+
+    @pytest.mark.asyncio
+    async def test_scan_skips_head_sha_move_with_same_content(
+        self, mock_github: MagicMock, mock_state: StateStore
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        mock_pr = PullRequest(
+            number=6,
+            title="Rebased",
+            author_login="user",
+            head_sha="sha6-new",
+            updated_at=now,
+            html_url="https://example.com",
+        )
+        mock_github.list_recent_open_pull_requests = AsyncMock(
+            return_value=([mock_pr], now)
+        )
+        mock_github.list_pull_files = AsyncMock(
+            return_value=["llvm/lib/Transforms/InstCombine/x.cpp"]
+        )
+        mock_github.get_pull_patch = AsyncMock(return_value="patch-body")
+
+        from llvm_hackme.patch_hash import compute_patch_hash
+
+        patch_sha = compute_patch_hash("patch-body")
+        mock_state.record_pr_update(6, head_sha="sha6-old", patch_sha256=patch_sha)
+        mock_state.mark_processed(6)
 
         scanner = PullRequestScanner(
             MagicMock(scan_overlap_seconds=300, scan_max_results=50),
@@ -170,9 +205,9 @@ class TestScanner:
         )
         mock_github.get_pull_patch = AsyncMock(return_value="patch-body")
 
-        import hashlib
+        from llvm_hackme.patch_hash import compute_patch_hash
 
-        patch_sha = hashlib.sha256(b"patch-body").hexdigest()
+        patch_sha = compute_patch_hash("patch-body")
         mock_state.record_pr_update(4, head_sha="sha4", patch_sha256=patch_sha)
 
         scanner = PullRequestScanner(

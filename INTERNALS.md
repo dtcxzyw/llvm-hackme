@@ -44,7 +44,7 @@ A PR lives in one of these states across scan cycles:
 stateDiagram-v2
     [*] --> IDLE
 
-    IDLE --> PROCESSING : scanner picks up<br/>(head_sha changed or<br/>processed_at is null)
+    IDLE --> PROCESSING : scanner picks up<br/>(relevant patch content<br/>changed or processed_at is null)
 
     state PROCESSING {
         REVIEW : LLM review
@@ -137,7 +137,7 @@ Each PR gets at most one llvm-hackme comment. Three layers enforce this:
 |--------|---------|
 | `pr_number` | GitHub PR number (PK) |
 | `head_sha` | Last processed PR head commit |
-| `patch_sha256` | SHA-256 of the last processed patch |
+| `patch_sha256` | SHA-256 of the last processed patch's relevant changes (llvm/ sources, excluding llvm/test/ and llvm/unittests/) |
 | `comment_id` | GitHub comment ID if a bug was reported |
 | `comment_url` | URL of the posted comment |
 | `reproducer_json` | Serialized `Reproducer` (only when a bug was found) |
@@ -150,9 +150,9 @@ Each PR gets at most one llvm-hackme comment. Three layers enforce this:
 
 1. Fetch open, non-draft PRs targeting `main`, updated since `scan_watermark - overlap`.
 2. For each PR, fetch changed files and skip if `is_source_file()` returns false for all.
-3. Fetch the patch and compute `patch_sha256`.
+3. Fetch the patch and compute `patch_sha256`. The hash is computed with `unidiff`: only changes under `llvm/` outside `llvm/test/` and `llvm/unittests/` are hashed, so updates limited to other projects (e.g. clang/, mlir/) or to tests do not trigger re-review.
 4. Check `pull_state`:
-   - If `head_sha == pr.head_sha` AND `patch_sha256 == computed` AND `processed_at is not null`: skip (already processed).
+   - If `patch_sha256 == computed` AND `processed_at is not null`: skip (relevant content unchanged — even if `head_sha` moved via rebase or a no-op force push).
    - Otherwise: record `head_sha` and `patch_sha256` in state, enqueue processing task.
 
 This means after a crash, any PR whose `processed_at` is still null will be re-picked up on restart.

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
 import os
@@ -33,6 +32,7 @@ from llvm_hackme.models import (
     Reproducer,
 )
 from llvm_hackme.passes import guess_pass_name
+from llvm_hackme.patch_hash import compute_patch_hash
 from llvm_hackme.reporting import report_result
 from llvm_hackme.scanner import PullRequestScanner
 from llvm_hackme.state import StateStore
@@ -184,7 +184,7 @@ class HackmeService:
         except Exception:
             LOGGER.exception("Failed to fetch patch for PR #%s", pr_number)
             return
-        patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
+        patch_sha256 = compute_patch_hash(patch)
         update = PullRequestUpdate(pr, patch, patch_sha256)
         self._schedule_pr_task(update)
         LOGGER.info("Manually enqueued PR #%s", pr_number)
@@ -215,7 +215,7 @@ class HackmeService:
         except Exception:
             LOGGER.exception("Failed to fetch updated patch for PR #%s", pr_number)
             return False
-        patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
+        patch_sha256 = compute_patch_hash(patch)
         new_pr = PullRequest(
             number=update.pr.number,
             title=update.pr.title,

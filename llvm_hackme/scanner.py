@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime, timezone
 
 from llvm_hackme.config import Config
 from llvm_hackme.github import GitHubClient
 from llvm_hackme.models import PullRequestUpdate
+from llvm_hackme.patch_hash import compute_patch_hash
 from llvm_hackme.paths import is_source_file
 from llvm_hackme.state import StateStore
 
@@ -41,13 +41,9 @@ class PullRequestScanner:
                 LOGGER.exception("Failed to fetch patch for PR #%s", pr.number)
                 continue
 
-            patch_sha256 = hashlib.sha256(patch.encode()).hexdigest()
+            patch_sha256 = compute_patch_hash(patch)
             stored = self.state.get_pull_state(pr.number)
-            if (
-                stored.head_sha == pr.head_sha
-                and stored.patch_sha256 == patch_sha256
-                and stored.processed_at is not None
-            ):
+            if stored.patch_sha256 == patch_sha256 and stored.processed_at is not None:
                 continue
 
             if stored.pending_until is not None and stored.pending_until > datetime.now(

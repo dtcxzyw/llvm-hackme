@@ -9,6 +9,7 @@ dependencies = [
   "openai>=1.99.0",
   "tenacity>=9.0.0",
   "textual>=1.0.0",
+  "unidiff>=1.0.0",
 ]
 
 [dependency-groups]
