@@ -111,7 +111,7 @@ class Config:
             state_db=Path(
                 os.environ.get("LLVM_HACKME_STATE_DB", work_dir / "state.db")
             ),
-            scan_interval_seconds=_int_env("LLVM_HACKME_SCAN_INTERVAL_SECONDS", 60),
+            scan_interval_seconds=_int_env("LLVM_HACKME_SCAN_INTERVAL_SECONDS", 600),
             scan_overlap_seconds=_int_env("LLVM_HACKME_SCAN_OVERLAP_SECONDS", 300),
             scan_iteration_timeout_seconds=_int_env(
                 "LLVM_HACKME_SCAN_ITERATION_TIMEOUT_SECONDS", 300

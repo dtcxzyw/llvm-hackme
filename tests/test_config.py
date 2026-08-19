@@ -50,7 +50,7 @@ class TestConfigFromEnv:
             config = Config.from_env()
         assert config.github_repository == "llvm/llvm-project"
         assert config.github_login_override is None
-        assert config.scan_interval_seconds == 60
+        assert config.scan_interval_seconds == 600
         assert config.scan_overlap_seconds == 300
         assert config.debounce_seconds == 300
         assert config.baseline_update_interval_seconds == 3600
