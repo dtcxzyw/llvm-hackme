@@ -593,7 +593,7 @@ class HackmeService:
                 "--format",
                 "json",
                 "--variant",
-                "high",
+                "low",
                 "--thinking",
                 hack_prompt,
                 env={
